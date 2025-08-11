@@ -3,11 +3,12 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from dotenv import load_dotenv
+from app import models
 
 load_dotenv()
 
 from app.database import Base
-from app import models  # ensure metadata is loaded
+# ensure metadata is loaded
 
 config = context.config
 
