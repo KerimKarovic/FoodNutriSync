@@ -1,8 +1,9 @@
 # app/database.py
 import os
 from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from typing import AsyncGenerator
 
 load_dotenv()
 
@@ -19,3 +20,11 @@ SessionLocal = async_sessionmaker(
 )
 
 Base = declarative_base()
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Get database session with proper typing"""
+    async with SessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()

@@ -1,14 +1,15 @@
 import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+from fastapi.testclient import TestClient
+from app.main import app, get_session
+from app.services.bls_service import BLSService
 
-# Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_session():
     """Mock database session for tests"""
     session = AsyncMock()
@@ -26,23 +27,35 @@ def mock_session():
     
     return session
 
-@pytest.fixture
+
+@pytest.fixture(scope="function")
+def mock_bls_service():
+    """Mock BLS service for testing"""
+    return AsyncMock(spec=BLSService)
+
+
+@pytest.fixture(scope="function")
 def client_with_mock_db(mock_session):
-    """Create test client with mocked database"""
-    from fastapi.testclient import TestClient
-    from app.main import app, get_session
+    """Test client with mocked database and logger"""
+    app.dependency_overrides[get_session] = lambda: mock_session
     
-    # Override the database dependency
-    async def mock_get_session():
-        return mock_session
-    
-    app.dependency_overrides[get_session] = mock_get_session
-    
-    client = TestClient(app)
-    yield client
+    # Mock the logger to prevent logging errors in tests
+    with patch('app.main.app_logger') as mock_logger:
+        mock_logger.log_api_query = MagicMock()
+        mock_logger.log_upload_start = MagicMock()
+        mock_logger.log_upload_success = MagicMock()
+        mock_logger.log_upload_error = MagicMock()
+        mock_logger.logger = MagicMock()
+        
+        with TestClient(app) as client:
+            yield client
     
     # Clean up
     app.dependency_overrides.clear()
+
+
+
+
 
 
 

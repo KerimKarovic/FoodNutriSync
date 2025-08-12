@@ -82,6 +82,14 @@ class AppLogger:
     def __init__(self):
         self.logger = logging.getLogger("foodnutrisync")
     
+    def error(self, message: str) -> None:
+        """Standard error logging"""
+        self.logger.error(message)
+    
+    def info(self, message: str) -> None:
+        """Standard info logging"""
+        self.logger.info(message)
+    
     def log_upload_start(self, filename: str, file_size: int, user_ip: str | None = None):
         """Log file upload initiation"""
         self.logger.info(

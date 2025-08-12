@@ -2,6 +2,8 @@
 import pytest
 import pandas as pd
 from io import BytesIO
+from app.services.bls_service import BLSDataValidator
+from app.exceptions import BLSValidationError
 
 class TestDataProcessing:
     """Test data processing and transformation"""
@@ -19,22 +21,75 @@ M401700,Gouda vollfett,356,25,0,819"""
         assert df.iloc[0]['ST'] == 'Edamer vollfett'
         assert df.iloc[0]['GCAL'] == 330
 
-class TestDataValidation:
-    """Test data validation rules"""
+class TestBLSDataValidation:
+    """Test BLS data validation and processing"""
     
-    def test_bls_number_format_validation(self):
-        """Test BLS number format patterns"""
-        valid_numbers = ['M401600', 'B123456', 'Y999999']
-        invalid_numbers = ['A123456', 'Z123456', '1234567', 'M12345', 'M1234567']
+    @pytest.fixture
+    def validator(self):
+        return BLSDataValidator()
+    
+    def test_validate_dataframe_success(self, validator):
+        """Test successful DataFrame validation"""
+        df = pd.DataFrame({
+            'SBLS': ['B123456', 'C789012'],
+            'STE': ['Apfel', 'Birne'],  # Use STE as expected by validator
+            'ENERC': [52.0, 57.0],
+            'PROT': [0.3, 0.4]
+        })
         
-        import re
-        pattern = r'^[B-Y][0-9]{6}$'
+        valid_records, errors = validator.validate_dataframe(df, "test.csv")
         
+        assert len(valid_records) == 2
+        assert len(errors) == 0
+        assert valid_records[0]['bls_number'] == 'B123456'
+        assert valid_records[0]['name_german'] == 'Apfel'
+    
+    def test_validate_dataframe_with_errors(self, validator):
+        """Test DataFrame validation with errors"""
+        df = pd.DataFrame({
+            'SBLS': ['INVALID', 'B123456', ''],
+            'STE': ['Apfel', '', 'Birne'],
+            'ENERC': [52.0, 57.0, 'invalid']
+        })
+        
+        valid_records, errors = validator.validate_dataframe(df, "test.csv")
+        
+        assert len(valid_records) == 0  # No completely valid records
+        assert len(errors) > 0
+    
+    def test_extract_bls_number_patterns(self, validator):
+        """Test BLS number pattern validation"""
+        # Valid patterns
+        valid_numbers = ['B123456', 'C789012', 'Y999999']
         for num in valid_numbers:
-            assert re.match(pattern, num), f"{num} should be valid"
+            row = pd.Series({'SBLS': num})
+            assert validator._extract_bls_number(row) == num
         
+        # Invalid patterns
+        invalid_numbers = ['A123456', 'Z123456', '123456', 'B12345', 'B1234567']
         for num in invalid_numbers:
-            assert not re.match(pattern, num), f"{num} should be invalid"
+            row = pd.Series({'SBLS': num})
+            assert validator._extract_bls_number(row) is None
+    
+    def test_extract_nutrients(self, validator):
+        """Test nutrient extraction from row"""
+        row = pd.Series({
+            'SBLS': 'B123456',
+            'STE': 'Test Food',
+            'ENERC': '100.5',
+            'PROT': '5,2',  # Test comma decimal
+            'FAT': '',      # Empty value
+            'INVALID': 'not_a_number'
+        })
+        
+        nutrients = validator._extract_nutrients(row)
+        
+        assert nutrients['enerc'] == 100.5
+        assert nutrients['prot'] == 5.2
+        assert 'fat' not in nutrients
+        assert 'invalid' not in nutrients
+        assert 'sbls' not in nutrients
+        assert 'ste' not in nutrients
 
 class TestErrorHandling:
     """Test error handling scenarios"""

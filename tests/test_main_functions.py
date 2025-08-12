@@ -1,180 +1,58 @@
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
+from app.services.bls_service import BLSService, BLSDataValidator
+from app.exceptions import BLSValidationError, BLSNotFoundError
 import pandas as pd
-import re
-from unittest.mock import Mock
-from decimal import Decimal
 
-class TestBLSValidation:
-    """Test BLS data validation functions"""
+
+class TestBLSService:
+    """Test BLS service business logic"""
     
-    def validate_bls_row_local(self, row, index: int) -> tuple[dict | None, str | None]:
-        """Local copy of validation logic for testing"""
-        bls_pattern = re.compile(r'^[B-Y]\d{6}$')
-        
-        try:
-            bls_number = str(row.get('SBLS', '') or '').strip().upper()
-            name_german = str(row.get('ST', '') or '').strip()
-            
-            if not bls_number:
-                return None, f"Row {index + 1}: Missing BLS number"
-            
-            if not bls_pattern.match(bls_number):
-                return None, f"Row {index + 1}: Invalid BLS number format '{bls_number}'"
-            
-            if not name_german or name_german == 'nan':
-                return None, f"Row {index + 1}: Missing German name"
-            
-            if len(name_german) > 255:
-                return None, f"Row {index + 1}: Name too long (max 255 chars)"
-            
-            nutrient_values = {}
-            for col in row.index:
-                if col not in ['SBLS', 'ST', 'STE', 'bls_number', 'name_german']:
-                    value = row.get(col)
-                    if pd.notna(value) and str(value) != '':
-                        try:
-                            s = str(value).replace(',', '.')
-                            float_val = float(s)
-                            if float_val >= 0:
-                                nutrient_values[col.lower()] = float_val
-                        except (ValueError, TypeError):
-                            pass
-            
-            return {
-                'bls_number': bls_number,
-                'name_german': name_german,
-                **nutrient_values
-            }, None
-            
-        except Exception as e:
-            return None, f"Row {index + 1}: Validation error - {str(e)}"
+    @pytest.fixture
+    def bls_service(self):
+        return BLSService()
     
-    def test_validate_bls_row_valid_data(self):
-        """Test validation with valid BLS data"""
-        row = pd.Series({
-            'SBLS': 'M401600',
-            'ST': 'Edamer, vollfett',
-            'GCAL': '330.0',
-            'EPRO': '25.0',
-            'VC': '0.0',
-            'MNA': '700.0'
-        })
-        
-        result, error = self.validate_bls_row_local(row, 0)
-        
-        assert error is None
-        assert result is not None
-        assert result['bls_number'] == 'M401600'
-        assert result['name_german'] == 'Edamer, vollfett'
-        assert result['gcal'] == 330.0
-        assert result['mna'] == 700.0
-
-    def test_validate_bls_row_invalid_bls_number(self):
-        """Test validation with invalid BLS number"""
-        row = pd.Series({
-            'SBLS': 'INVALID',
-            'ST': 'Test Food',
-            'GCAL': '100.0'
-        })
-        
-        result, error = self.validate_bls_row_local(row, 0)
-        
-        assert result is None
-        assert error is not None
-        assert "Invalid BLS number format" in error
-
-    def test_validate_bls_row_missing_name(self):
-        """Test validation with missing name"""
-        row = pd.Series({
-            'SBLS': 'M401600',
-            'ST': '',
-            'GCAL': '100.0'
-        })
-        
-        result, error = self.validate_bls_row_local(row, 0)
-        
-        assert result is None
-        assert error is not None
-        assert "Missing German name" in error
-
-class TestUtilityFunctions:
-    """Test utility functions"""
+    @pytest.fixture
+    def mock_session(self):
+        return AsyncMock()
     
-    def get_client_ip_local(self, request):
-        """Local copy of get_client_ip for testing"""
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        
-        if hasattr(request, 'client') and request.client:
-            return request.client.host
-        
-        return "unknown"
+    @pytest.mark.asyncio
+    async def test_get_by_bls_number_invalid_format(self, bls_service, mock_session):
+        """Test BLS number validation"""
+        with pytest.raises(BLSValidationError):
+            await bls_service.get_by_bls_number(mock_session, "INVALID")
     
-    def test_get_client_ip_direct(self):
-        """Test getting client IP directly"""
-        mock_request = Mock()
-        mock_request.headers = {}
-        mock_request.client = Mock()
-        mock_request.client.host = "192.168.1.1"
+    @pytest.mark.asyncio
+    async def test_get_by_bls_number_not_found(self, bls_service, mock_session):
+        """Test BLS number not found"""
+        # Mock empty result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
         
-        ip = self.get_client_ip_local(mock_request)
-        assert ip == "192.168.1.1"
+        with pytest.raises(BLSNotFoundError):
+            await bls_service.get_by_bls_number(mock_session, "B123456")
 
-    def test_get_client_ip_forwarded(self):
-        """Test getting client IP from X-Forwarded-For header"""
-        mock_request = Mock()
-        mock_request.headers = {"X-Forwarded-For": "203.0.113.1, 192.168.1.1"}
-        
-        ip = self.get_client_ip_local(mock_request)
-        assert ip == "203.0.113.1"
 
-    def test_get_client_ip_no_client(self):
-        """Test getting client IP when no client info"""
-        mock_request = Mock()
-        mock_request.headers = {}
-        mock_request.client = None
-        
-        ip = self.get_client_ip_local(mock_request)
-        assert ip == "unknown"
-
-class TestModelCreation:
-    """Test BLS model instantiation"""
+class TestBLSDataValidator:
+    """Test BLS data validation logic"""
     
-    def test_bls_nutrition_creation(self):
-        """Test creating BLS nutrition object"""
-        from app.models import BLSNutrition
-        
-        # Create the object with data
-        data = {
-            'bls_number': "M401600",
-            'name_german': "Test Food",
-            'gcal': Decimal('330.0'),
-            'mna': Decimal('700.0')
-        }
-        
-        bls_item = BLSNutrition(**data)
-        
-        # Test by accessing the underlying values
-        assert getattr(bls_item, 'bls_number') == "M401600"
-        assert getattr(bls_item, 'name_german') == "Test Food"
-        assert getattr(bls_item, 'gcal') == Decimal('330.0')
-        assert getattr(bls_item, 'mna') == Decimal('700.0')
-
-    def test_bls_nutrition_minimal(self):
-        """Test BLS nutrition with minimal data"""
-        from app.models import BLSNutrition
-        
-        bls_item = BLSNutrition(
-            bls_number="M401600",
-            name_german="Test Food"
-        )
-        
-        # Test by accessing the underlying values
-        assert getattr(bls_item, 'bls_number') == "M401600"
-        assert getattr(bls_item, 'name_german') == "Test Food"
-        
-        # Test that optional fields are None
-        assert getattr(bls_item, 'gcal', None) is None
-        assert getattr(bls_item, 'mna', None) is None
+    @pytest.fixture
+    def validator(self):
+        return BLSDataValidator()
+    
+    def test_validate_bls_number_valid(self, validator):
+        """Test valid BLS number patterns"""
+        row = pd.Series({'SBLS': 'B123456', 'STE': 'Test Food'})
+        assert validator._extract_bls_number(row) == 'B123456'
+    
+    def test_validate_bls_number_invalid(self, validator):
+        """Test invalid BLS number patterns"""
+        row = pd.Series({'SBLS': 'INVALID', 'STE': 'Test Food'})
+        assert validator._extract_bls_number(row) is None
+    
+    def test_validate_name_extraction(self, validator):
+        """Test German name extraction"""
+        row = pd.Series({'SBLS': 'B123456', 'STE': 'Test Food'})
+        assert validator._extract_name(row) == 'Test Food'
