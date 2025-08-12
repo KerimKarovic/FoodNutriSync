@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, CheckConstraint, Numeric, Index
 from app.database import Base
+import os
 
 class BLSNutrition(Base):
     __tablename__ = "bls_nutrition"
@@ -155,8 +156,14 @@ class BLSNutrition(Base):
     gp = Column("GP", Numeric(10, 3))
     # ... add other nutrient columns as needed
 
-    __table_args__ = (
-        CheckConstraint("bls_number ~ '^[B-Y][0-9]{6}$'", name="ck_bls_number_format"),
-        # Add trigram index for fast text search
-        Index('ix_name_german_trgm', 'name_german', postgresql_using='gin', postgresql_ops={'name_german': 'gin_trgm_ops'}),
-    )
+    # Conditional table args based on database type
+    if "sqlite" in os.getenv("DATABASE_URL", ""):
+        __table_args__ = (
+            # SQLite doesn't support regex, skip the constraint for tests
+            Index('ix_name_german_trgm', 'name_german'),
+        )
+    else:
+        __table_args__ = (
+            CheckConstraint("bls_number ~ '^[B-Y][0-9]{6}$'", name="ck_bls_number_format"),
+            Index('ix_name_german_trgm', 'name_german', postgresql_using='gin', postgresql_ops={'name_german': 'gin_trgm_ops'}),
+        )

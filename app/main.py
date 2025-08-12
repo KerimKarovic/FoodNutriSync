@@ -50,8 +50,8 @@ async def admin_page(request: Request):
 @app.get("/bls/search", response_model=BLSSearchResponse)
 async def search_bls(
     request: Request,
-    name: str, 
-    limit: int = Query(50, ge=1, le=100),
+    name: str = Query(..., description="Search term for German name"),
+    limit: int = Query(10, ge=1, le=100, description="Number of results to return"),
     session: AsyncSession = Depends(get_session)
 ):
     start_time = time.time()
