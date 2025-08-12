@@ -1,0 +1,33 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FoodNutriSync Admin{% endblock %}</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .header { background: #2563eb; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .btn { background: #2563eb; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #1d4ed8; }
+        .success { color: #059669; background: #ecfdf5; padding: 10px; border-radius: 4px; }
+        .error { color: #dc2626; background: #fef2f2; padding: 10px; border-radius: 4px; }
+        .file-input { margin: 10px 0; }
+        .progress { display: none; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🍎 FoodNutriSync Admin</h1>
+        <p>BLS Nutrition Database Management</p>
+    </div>
+    
+    {% block content %}{% endblock %}
+    
+    <footer style="text-align: center; margin-top: 40px; color: #64748b;">
+        <p>FoodNutriSync v1.0.0 | <a href="/docs">API Docs</a></p>
+    </footer>
+</body>
+</html>
+

@@ -1,0 +1,2 @@
+{"timestamp": "2025-08-12T10:16:36.363501Z", "level": "INFO", "logger": "foodnutrisync", "message": "Admin page accessed from 127.0.0.1", "module": "main", "function": "admin_page", "line": 48}
+{"timestamp": "2025-08-12T11:00:55.070924Z", "level": "INFO", "logger": "foodnutrisync", "message": "Admin page accessed from 127.0.0.1", "module": "main", "function": "admin_page", "line": 48}

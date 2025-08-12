@@ -1,29 +1,29 @@
-from sqlalchemy import Column, String, CheckConstraint, Numeric
+from sqlalchemy import Column, String, CheckConstraint, Numeric, Index
 from app.database import Base
 
 class BLSNutrition(Base):
     __tablename__ = "bls_nutrition"
 
-    # Primary key: 1 letter (B–Y) + 6 digits
     bls_number = Column(String(7), primary_key=True, index=True)
-    name_german = Column(String, nullable=False)
-
-    __table_args__ = (
-        CheckConstraint("bls_number ~ '^[B-Y][0-9]{6}$'", name="ck_bls_number_format"),
-    )
-
+    name_german = Column(String, nullable=False, index=True)
+    
+    # Energy values
     gcal = Column("GCAL", Numeric(10, 3))
     gj = Column("GJ", Numeric(10, 3))
     gcalzb = Column("GCALZB", Numeric(10, 3))
     gjzb = Column("GJZB", Numeric(10, 3))
-    zw = Column("ZW", Numeric(10, 3))
-    ze = Column("ZE", Numeric(10, 3))
-    zf = Column("ZF", Numeric(10, 3))
-    zk = Column("ZK", Numeric(10, 3))
-    zb = Column("ZB", Numeric(10, 3))
-    zm = Column("ZM", Numeric(10, 3))
-    zo = Column("ZO", Numeric(10, 3))
-    za = Column("ZA", Numeric(10, 3))
+    
+    # Basic nutrients
+    zw = Column("ZW", Numeric(10, 3))  # Water
+    ze = Column("ZE", Numeric(10, 3))  # Protein
+    zf = Column("ZF", Numeric(10, 3))  # Fat
+    zk = Column("ZK", Numeric(10, 3))  # Carbohydrates
+    zb = Column("ZB", Numeric(10, 3))  # Fiber
+    zm = Column("ZM", Numeric(10, 3))  # Minerals
+    zo = Column("ZO", Numeric(10, 3))  # Organic acids
+    za = Column("ZA", Numeric(10, 3))  # Ash
+    
+    # Vitamins
     va = Column("VA", Numeric(10, 3))
     var = Column("VAR", Numeric(10, 3))
     vac = Column("VAC", Numeric(10, 3))
@@ -41,19 +41,21 @@ class BLSNutrition(Base):
     vb9g = Column("VB9G", Numeric(10, 3))
     vb12 = Column("VB12", Numeric(10, 3))
     vc = Column("VC", Numeric(10, 3))
-    mna = Column("MNA", Numeric(10, 3))
-    mk = Column("MK", Numeric(10, 3))
-    mca = Column("MCA", Numeric(10, 3))
-    mmg = Column("MMG", Numeric(10, 3))
-    mp = Column("MP", Numeric(10, 3))
-    ms = Column("MS", Numeric(10, 3))
-    mcl = Column("MCL", Numeric(10, 3))
-    mfe = Column("MFE", Numeric(10, 3))
-    mzn = Column("MZN", Numeric(10, 3))
-    mcu = Column("MCU", Numeric(10, 3))
-    mmn = Column("MMN", Numeric(10, 3))
-    mf = Column("MF", Numeric(10, 3))
-    mj = Column("MJ", Numeric(10, 3))
+    
+    # Minerals
+    mna = Column("MNA", Numeric(10, 3))  # Sodium
+    mk = Column("MK", Numeric(10, 3))    # Potassium
+    mca = Column("MCA", Numeric(10, 3))  # Calcium
+    mmg = Column("MMG", Numeric(10, 3))  # Magnesium
+    mp = Column("MP", Numeric(10, 3))    # Phosphorus
+    ms = Column("MS", Numeric(10, 3))    # Sulfur
+    mcl = Column("MCL", Numeric(10, 3))  # Chlorine
+    mfe = Column("MFE", Numeric(10, 3))  # Iron
+    mzn = Column("MZN", Numeric(10, 3))  # Zinc
+    mcu = Column("MCU", Numeric(10, 3))  # Copper
+    mmn = Column("MMN", Numeric(10, 3))  # Manganese
+    mf = Column("MF", Numeric(10, 3))    # Fluorine
+    mj = Column("MJ", Numeric(10, 3))    # Iodine
     kam = Column("KAM", Numeric(10, 3))
     kas = Column("KAS", Numeric(10, 3))
     kax = Column("KAX", Numeric(10, 3))
@@ -151,3 +153,10 @@ class BLSNutrition(Base):
     gkb = Column("GKB", Numeric(10, 3))
     gmko = Column("GMKO", Numeric(10, 3))
     gp = Column("GP", Numeric(10, 3))
+    # ... add other nutrient columns as needed
+
+    __table_args__ = (
+        CheckConstraint("bls_number ~ '^[B-Y][0-9]{6}$'", name="ck_bls_number_format"),
+        # Add trigram index for fast text search
+        Index('ix_name_german_trgm', 'name_german', postgresql_using='gin', postgresql_ops={'name_german': 'gin_trgm_ops'}),
+    )

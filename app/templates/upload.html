@@ -1,0 +1,106 @@
+
+{% extends "base.html" %}
+
+{% block title %}Upload BLS Data - FoodNutriSync{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📊 Upload BLS Dataset</h2>
+    <p>Upload a CSV or Excel file containing BLS nutrition data.</p>
+    
+    <form id="uploadForm" enctype="multipart/form-data">
+        <div class="file-input">
+            <label for="file"><strong>Select File:</strong></label><br>
+            <input type="file" id="file" name="file" accept=".csv,.xlsx,.xls" required>
+            <small style="color: #64748b;">Supported formats: CSV, Excel (.xlsx, .xls)</small>
+        </div>
+        
+        <button type="submit" class="btn">🚀 Upload & Process</button>
+    </form>
+    
+    <div id="progress" class="progress">
+        <p>⏳ Processing file... Please wait.</p>
+    </div>
+    
+    <div id="result"></div>
+</div>
+
+<div class="card">
+    <h3>📋 Expected File Format</h3>
+    <p><strong>Required columns:</strong></p>
+    <ul>
+        <li><code>SBLS</code> or <code>bls_number</code> - BLS code (e.g., M401600)</li>
+        <li><code>ST</code> or <code>name_german</code> - German food name</li>
+        <li>Nutrient columns: <code>GCAL</code>, <code>EPRO</code>, <code>VC</code>, etc.</li>
+    </ul>
+    <p><strong>Notes:</strong> Decimal commas (3,5) are automatically converted. Negative values are skipped.</p>
+</div>
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const fileInput = document.getElementById('file');
+    const progressDiv = document.getElementById('progress');
+    const resultDiv = document.getElementById('result');
+    
+    if (!fileInput.files[0]) {
+        alert('Please select a file first.');
+        return;
+    }
+    
+    // Show progress
+    progressDiv.style.display = 'block';
+    resultDiv.innerHTML = '';
+    
+    // Create form data
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    
+    try {
+        const response = await fetch('/admin/upload-bls', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        // Hide progress
+        progressDiv.style.display = 'none';
+        
+        if (response.ok) {
+            resultDiv.innerHTML = `
+                <div class="success">
+                    <h4>✅ Upload Successful!</h4>
+                    <p><strong>Added:</strong> ${result.added} records</p>
+                    <p><strong>Updated:</strong> ${result.updated} records</p>
+                    <p><strong>Failed:</strong> ${result.failed} records</p>
+                    ${result.errors.length > 0 ? `
+                        <details>
+                            <summary>View Errors (${result.errors.length})</summary>
+                            <ul>${result.errors.map(err => `<li>${err}</li>`).join('')}</ul>
+                        </details>
+                    ` : ''}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="error">
+                    <h4>❌ Upload Failed</h4>
+                    <p>${result.detail || 'Unknown error occurred'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        progressDiv.style.display = 'none';
+        resultDiv.innerHTML = `
+            <div class="error">
+                <h4>❌ Network Error</h4>
+                <p>Failed to upload file: ${error.message}</p>
+            </div>
+        `;
+    }
+});
+</script>
+{% endblock %}
+
