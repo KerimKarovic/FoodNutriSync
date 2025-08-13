@@ -5,9 +5,9 @@ import os
 class BLSNutrition(Base):
     __tablename__ = "bls_nutrition"
 
-    bls_number = Column(String(7), primary_key=True, index=True)
-    name_german = Column(String, nullable=False, index=True)
-    
+    bls_number   = Column("SBLS", String(7), primary_key=True, index=True)   
+    name_german  = Column("ST",   String,     nullable=False, index=True)   
+    name_english = Column("STE",  String,     nullable=True,  index=True)    
     # Energy values
     gcal = Column("GCAL", Numeric(10, 3))
     gj = Column("GJ", Numeric(10, 3))
@@ -154,16 +154,26 @@ class BLSNutrition(Base):
     gkb = Column("GKB", Numeric(10, 3))
     gmko = Column("GMKO", Numeric(10, 3))
     gp = Column("GP", Numeric(10, 3))
-    # ... add other nutrient columns as needed
+   
 
-    # Conditional table args based on database type
-    if "sqlite" in os.getenv("DATABASE_URL", ""):
-        __table_args__ = (
-            # SQLite doesn't support regex, skip the constraint for tests
-            Index('ix_name_german_trgm', 'name_german'),
-        )
-    else:
-        __table_args__ = (
-            CheckConstraint("bls_number ~ '^[B-Y][0-9]{6}$'", name="ck_bls_number_format"),
-            Index('ix_name_german_trgm', 'name_german', postgresql_using='gin', postgresql_ops={'name_german': 'gin_trgm_ops'}),
-        )
+    
+    from sqlalchemy import CheckConstraint, Index
+
+__table_args__ = (
+    # Enforce BLS code format (uppercase column -> needs quotes)
+    CheckConstraint('"SBLS" ~ \'^[B-Y][0-9]{6}$\'', name="ck_bls_number_format"),
+
+    # Trigram indexes for ST/STE (requires pg_trgm)
+    Index(
+        'ix_blsnutrition_ST_trgm',
+        'ST',
+        postgresql_using='gin',
+        postgresql_ops={'ST': 'gin_trgm_ops'},
+    ),
+    Index(
+        'ix_blsnutrition_STE_trgm',
+        'STE',
+        postgresql_using='gin',
+        postgresql_ops={'STE': 'gin_trgm_ops'},
+    ),
+)

@@ -41,6 +41,11 @@ def get_client_ip(request: Request) -> str:
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
 
+@app.get("/")
+async def root():
+    return {"message": "FoodNutriSync API", "version": "1.0.0"}
+
+
 @app.get(
     "/bls/search",
     response_model=BLSSearchResponse,
@@ -86,7 +91,7 @@ async def get_bls_by_number(
     request: Request,
     bls_number: str = Path(
         ...,
-        pattern=r"^[B-Y]\d{6}$",
+        pattern=r"^[B-Y]\d{6}$",  # 1 letter + 6 digits = 7 total
         description="BLS number (e.g., B123456)"
     ),
     session: AsyncSession = Depends(get_session)
@@ -131,16 +136,9 @@ async def upload_bls(
     client_ip = get_client_ip(request)
     filename = file.filename or "unknown_file"
 
-    # Enhanced file type validation
-    kind = (file.content_type or "").lower()
-    is_csv = kind in {"text/csv", "application/csv"} or (filename.endswith(".csv"))
-    is_excel = kind in {
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel",
-    } or (filename.endswith((".xlsx", ".xls")))
-    
-    if not (is_csv or is_excel):
-        raise HTTPException(400, "File must be CSV or Excel format")
+    # File type validation - only TXT
+    if not filename.endswith(".txt"):
+        raise HTTPException(400, "File must be TXT format")
 
     # Size validation
     content = await file.read()
@@ -155,11 +153,49 @@ async def upload_bls(
             user_ip=client_ip
         )
         
-        # Parse file
-        if is_csv:
-            df = pd.read_csv(BytesIO(content))
-        else:
-            df = pd.read_excel(BytesIO(content))
+        # Parse TXT file with multiple encoding attempts
+        df = None
+        encodings_to_try = [
+            'utf-8-sig',  # UTF-8 with BOM
+            'utf-8',      # Standard UTF-8
+            'utf-16',     # UTF-16 with BOM
+            'utf-16-le',  # UTF-16 Little Endian
+            'utf-16-be',  # UTF-16 Big Endian
+            'iso-8859-1', # Latin-1
+            'windows-1252', # Windows encoding
+            'cp1252'      # Code page 1252
+        ]
+        
+        for encoding in encodings_to_try:
+            try:
+                df = pd.read_csv(
+                    BytesIO(content), 
+                    decimal=',', 
+                    sep='\t', 
+                    encoding=encoding, 
+                    header=0,
+                    skipinitialspace=True,
+                    on_bad_lines='skip'  # Skip problematic lines
+                )
+                print(f"DEBUG: Successfully read with encoding: {encoding}")
+                print(f"DEBUG: Columns after reading: {list(df.columns)}")
+                break
+            except (UnicodeDecodeError, pd.errors.EmptyDataError, UnicodeError) as e:
+                print(f"DEBUG: Failed with encoding {encoding}: {e}")
+                continue
+        
+        if df is None:
+            raise HTTPException(400, "Could not decode file with any supported encoding")
+        
+        # Clean column names (remove BOM if present)
+        df.columns = [col.lstrip('ÿþ').strip() for col in df.columns]
+        print(f"DEBUG: Cleaned columns: {list(df.columns)}")
+        
+        # Remove empty rows - filter out rows where SBLS is NaN or empty
+        initial_count = len(df)
+        df = df.dropna(subset=['SBLS'])  # Remove rows with NaN SBLS
+        df = df[df['SBLS'].astype(str).str.strip() != '']  # Remove rows with empty SBLS
+        print(f"DEBUG: Filtered {initial_count} -> {len(df)} rows (removed {initial_count - len(df)} empty rows)")
         
         # Process data
         result = await bls_service.upload_data(session, df, filename)

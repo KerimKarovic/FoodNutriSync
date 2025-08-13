@@ -32,17 +32,18 @@ class TestBLSDataValidation:
         """Test successful DataFrame validation"""
         df = pd.DataFrame({
             'SBLS': ['B123456', 'C789012'],
-            'STE': ['Apfel', 'Birne'],  # Use STE as expected by validator
-            'ENERC': [52.0, 57.0],
-            'PROT': [0.3, 0.4]
+            'ST': ['Apfel', 'Birne'],  # Use ST for German name
+            'STE': ['Apple', 'Pear'],  # Use STE for English name
+            'GCAL': [52.0, 57.0],
+            'ZE': [0.3, 0.4]
         })
         
         valid_records, errors = validator.validate_dataframe(df, "test.csv")
         
         assert len(valid_records) == 2
         assert len(errors) == 0
-        assert valid_records[0]['bls_number'] == 'B123456'
-        assert valid_records[0]['name_german'] == 'Apfel'
+        assert valid_records[0]['SBLS'] == 'B123456'
+        assert valid_records[0]['ST'] == 'Apfel'
     
     def test_validate_dataframe_with_errors(self, validator):
         """Test DataFrame validation with errors"""

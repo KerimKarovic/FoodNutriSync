@@ -54,5 +54,5 @@ class TestBLSDataValidator:
     
     def test_validate_name_extraction(self, validator):
         """Test German name extraction"""
-        row = pd.Series({'SBLS': 'B123456', 'STE': 'Test Food'})
-        assert validator._extract_name(row) == 'Test Food'
+        row = pd.Series({'SBLS': 'B123456', 'ST': 'Test Food'})
+        assert validator._extract_german_name(row) == 'Test Food'
