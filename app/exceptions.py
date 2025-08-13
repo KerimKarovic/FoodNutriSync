@@ -1,30 +1,16 @@
-"""Custom exceptions for the application"""
+"""Custom exceptions for the BLS application."""
 
-class FoodNutriSyncError(Exception):
-    """Base exception for all application errors"""
+
+class BLSNotFoundError(Exception):
+    """Raised when a BLS food item is not found."""
     pass
 
 
-class BLSError(FoodNutriSyncError):
-    """Base exception for BLS-related errors"""
+class BLSValidationError(Exception):
+    """Raised when BLS data validation fails."""
     pass
 
 
-class BLSNotFoundError(BLSError):
-    """Raised when BLS number is not found"""
-    pass
-
-
-class BLSValidationError(BLSError):
-    """Raised when BLS data validation fails"""
-    pass
-
-
-class FileUploadError(FoodNutriSyncError):
-    """Raised when file upload fails"""
-    pass
-
-
-class DatabaseError(FoodNutriSyncError):
-    """Raised when database operations fail"""
+class FileUploadError(Exception):
+    """Raised when file upload processing fails."""
     pass

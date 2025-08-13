@@ -41,11 +41,6 @@ def get_client_ip(request: Request) -> str:
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
 
-@app.get("/")
-async def root():
-    return {"message": "FoodNutriSync API", "version": "1.0.0"}
-
-
 @app.get(
     "/bls/search",
     response_model=BLSSearchResponse,

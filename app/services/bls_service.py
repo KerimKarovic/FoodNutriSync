@@ -35,11 +35,7 @@ class BLSService:
             return BLSSearchResponse(results=[], count=0)
         
         search_term = f"%{name.strip().lower()}%"
-        stmt = (
-            select(BLSNutrition)
-            .where(BLSNutrition.name_german.ilike(search_term))
-            .limit(limit)
-        )
+        stmt = select(BLSNutrition).where(BLSNutrition.name_german.ilike(search_term)).limit(limit)
         
         result = await session.execute(stmt)
         items = result.scalars().all()
@@ -52,15 +48,13 @@ class BLSService:
         validator = BLSDataValidator()
         valid_records, errors = validator.validate_dataframe(df, filename)
         
-        added_count = 0
-        if valid_records:
-            added_count = await self._bulk_upsert(session, valid_records)
+        added_count = await self._bulk_upsert(session, valid_records) if valid_records else 0
         
         return BLSUploadResponse(
             added=added_count,
             updated=0,  # Simplified for now
             failed=len(errors),
-            errors=errors[:10]
+            errors=errors[:10]  # Limit error messages
         )
     
     async def _bulk_upsert(self, session: AsyncSession, records: List[dict]) -> int:
@@ -82,13 +76,15 @@ class BLSDataValidator:
     """Validates BLS data for upload"""
     
     BLS_PATTERN = re.compile(r'^[B-Y]\d{6}$')
+    EXCLUDED_COLS = {'SBLS', 'ST', 'STE', 'bls_number', 'name_german'}
+    NAME_COLUMNS = ['STE', 'ST', 'name_german']
     
     def validate_dataframe(self, df: pd.DataFrame, filename: str) -> tuple[List[dict], List[str]]:
         """Validate entire DataFrame and return valid records and errors"""
         valid_records = []
         errors = []
         
-        for i, (index, row) in enumerate(df.iterrows()):
+        for i, (_, row) in enumerate(df.iterrows()):
             try:
                 record = self._validate_row(row, i)
                 if record:
@@ -100,12 +96,12 @@ class BLSDataValidator:
     
     def _validate_row(self, row: pd.Series, index: int) -> Optional[dict]:
         """Validate a single row and return processed data"""
-        # Extract BLS number
+        # Extract and validate BLS number
         bls_number = self._extract_bls_number(row)
         if not bls_number:
             raise BLSValidationError(f"Row {index + 1}: Missing or invalid BLS number")
         
-        # Extract German name
+        # Extract and validate German name
         name_german = self._extract_name(row)
         if not name_german:
             raise BLSValidationError(f"Row {index + 1}: Missing German name")
@@ -113,29 +109,24 @@ class BLSDataValidator:
         if len(name_german) > 255:
             raise BLSValidationError(f"Row {index + 1}: Name too long (max 255 chars)")
         
-        # Extract nutrients
-        nutrients = self._extract_nutrients(row)
-        
         return {
             'bls_number': bls_number,
             'name_german': name_german,
-            **nutrients
+            **self._extract_nutrients(row)
         }
     
     def _extract_bls_number(self, row: pd.Series) -> Optional[str]:
         """Extract and validate BLS number from row"""
         bls_value = row.get('SBLS')
-        if pd.isna(bls_value) or not isinstance(bls_value, str):
+        if pd.isna(bls_value):
             return None
         
         bls_value = str(bls_value).strip()
-        if self.BLS_PATTERN.match(bls_value):
-            return bls_value
-        return None
+        return bls_value if self.BLS_PATTERN.match(bls_value) else None
     
     def _extract_name(self, row: pd.Series) -> Optional[str]:
         """Extract German name from row"""
-        for col in ['STE', 'ST', 'name_german']:
+        for col in self.NAME_COLUMNS:
             if col in row.index:
                 value = row.get(col)
                 if pd.notna(value) and str(value).strip():
@@ -145,10 +136,9 @@ class BLSDataValidator:
     def _extract_nutrients(self, row: pd.Series) -> dict:
         """Extract nutrient values from row"""
         nutrients = {}
-        excluded_cols = {'SBLS', 'ST', 'STE', 'bls_number', 'name_german'}
         
         for col in row.index:
-            if col not in excluded_cols:
+            if col not in self.EXCLUDED_COLS:
                 value = row.get(col)
                 if pd.notna(value) and value != '':
                     try:
@@ -159,5 +149,7 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
+
 
 
