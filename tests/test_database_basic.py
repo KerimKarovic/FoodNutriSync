@@ -29,9 +29,9 @@ class TestDatabase:
         assert hasattr(BLSNutrition, 'name_german')
         assert hasattr(BLSNutrition, '__table__')
         
-        # Check primary key
+        # Check primary key - use actual DB column name
         pk_columns = [col.name for col in BLSNutrition.__table__.primary_key.columns]
-        assert 'bls_number' in pk_columns
+        assert 'SBLS' in pk_columns  # Actual DB column name
 
 
 class TestBLSServiceIntegration:
@@ -72,4 +72,5 @@ class TestBLSServiceIntegration:
         # Test empty search
         result = await bls_service.search_by_name(mock_session, "")
         assert result.count == 0
+
 

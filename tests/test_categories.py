@@ -76,21 +76,19 @@ class TestBLSDataValidation:
         """Test nutrient extraction from row"""
         row = pd.Series({
             'SBLS': 'B123456',
-            'STE': 'Test Food',
-            'ENERC': '100.5',
-            'PROT': '5,2',  # Test comma decimal
-            'FAT': '',      # Empty value
+            'ST': 'Test Food',
+            'GCAL': '100.5',
+            'ZE': '5,2',  # Test comma decimal
+            'ZF': '',      # Empty value
             'INVALID': 'not_a_number'
         })
         
         nutrients = validator._extract_nutrients(row)
         
-        assert nutrients['enerc'] == 100.5
-        assert nutrients['prot'] == 5.2
-        assert 'fat' not in nutrients
-        assert 'invalid' not in nutrients
-        assert 'sbls' not in nutrients
-        assert 'ste' not in nutrients
+        assert nutrients['GCAL'] == 100.5
+        assert nutrients['ZE'] == 5.2  # Comma converted to dot
+        assert 'ZF' not in nutrients  # Empty values excluded
+        assert 'INVALID' not in nutrients  # Invalid values excluded
 
 class TestErrorHandling:
     """Test error handling scenarios"""

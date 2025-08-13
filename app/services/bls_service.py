@@ -216,9 +216,18 @@ class BLSDataValidator:
                 value = row[col_name]
                 if pd.notna(value) and str(value).strip() != '':
                     try:
-                        # Convert comma decimals to dot decimals and ensure float
-                        str_value = str(value).replace(',', '.').strip()
+                        # Handle German number format properly
+                        str_value = str(value).strip()
                         if str_value:  # Only process non-empty strings
+                            # German format: 1.234,56 -> 1234.56
+                            # Check if it contains both . and , (German format)
+                            if '.' in str_value and ',' in str_value:
+                                # Remove thousand separator (.) and replace decimal comma with dot
+                                str_value = str_value.replace('.', '').replace(',', '.')
+                            else:
+                                # Simple comma to dot replacement for decimal only
+                                str_value = str_value.replace(',', '.')
+                            
                             float_val = float(str_value)
                             if float_val >= 0:  # Only accept non-negative values
                                 nutrients[col_name] = float(float_val)  # Ensure Python float type
@@ -228,6 +237,7 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
 
 
 

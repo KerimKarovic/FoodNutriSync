@@ -52,8 +52,8 @@ class TestFileUpload:
         )
         mock_service.upload_data = AsyncMock(return_value=mock_upload_response)
         
-        csv_content = "SBLS,STE,ENERC\nINVALID,Test Food,100"
-        files = {"file": ("test.csv", BytesIO(csv_content.encode()), "text/csv")}
+        txt_content = "SBLS\tST\tGCAL\nINVALID\tTest Food\t100"
+        files = {"file": ("test.txt", BytesIO(txt_content.encode()), "text/plain")}
         
         response = client_with_mock_db.post("/admin/upload-bls", files=files)
         assert response.status_code == 200
@@ -73,6 +73,7 @@ class TestDataValidation:
         response = client_with_mock_db.post("/admin/upload-bls", files=files)
         # Should still return 200 but with validation errors
         assert response.status_code in [200, 400]
+
 
 
 
