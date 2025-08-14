@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Initialize logging
 setup_logging()
 
-app = FastAPI(title="FoodNutriSync", version="1.0.0")
+app = FastAPI(title="NutriSync", version="1.0.0")
 templates = Jinja2Templates(directory="app/templates")
 
 # Service instances
@@ -43,7 +43,7 @@ def get_client_ip(request: Request) -> str:
 
 @app.get("/")
 async def root():
-    return {"message": "FoodNutriSync API", "version": "1.0.0"}
+    return {"message": "NutriSync API", "version": "1.0.0"}
 
 
 @app.get(
@@ -125,7 +125,7 @@ async def get_bls_by_number(
     "/admin/upload-bls",
     response_model=BLSUploadResponse,
     tags=["Admin"],
-    summary="Upload BLS CSV/Excel"
+    summary="Upload BLS .txt"
 )
 async def upload_bls(
     request: Request,
@@ -168,7 +168,7 @@ async def upload_bls(
         
         for encoding in encodings_to_try:
             try:
-                df = pd.read_csv(
+                df = pd.read_table(
                     BytesIO(content), 
                     decimal=',', 
                     sep='\t', 

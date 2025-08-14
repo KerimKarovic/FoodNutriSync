@@ -59,12 +59,6 @@ class BLSService:
     
     async def _bulk_upsert(self, session: AsyncSession, records: List[dict]) -> int:
         """Perform bulk upsert operation"""
-        print(f"DEBUG: About to insert {len(records)} records")
-        for i, record in enumerate(records[:2]):  # Show first 2 records
-            print(f"DEBUG: Record {i}: {record}")
-            for key, value in record.items():
-                print(f"  {key}: {value} (type: {type(value)})")
-        
         stmt = insert(BLSNutrition).values(records)
         upsert_stmt = stmt.on_conflict_do_update(
             index_elements=['SBLS'],  # Use actual DB column name, not 'bls_number'
@@ -120,12 +114,6 @@ class BLSDataValidator:
         valid_records = []
         errors = []
         
-        # Debug: Print column names and first few rows
-        print(f"DEBUG: DataFrame columns: {list(df.columns)}")
-        print(f"DEBUG: DataFrame shape: {df.shape}")
-        if len(df) > 0:
-            print(f"DEBUG: First row: {df.iloc[0].to_dict()}")
-        
         for i, (_, row) in enumerate(df.iterrows()):
             try:
                 record = self._validate_row(row, i)
@@ -174,16 +162,12 @@ class BLSDataValidator:
         
         if bls_value is None and len(row) > 0:
             bls_value = row.iloc[0]  # Fallback to first column
-            
-        print(f"DEBUG: BLS value: {bls_value}")
         
         if pd.isna(bls_value):
             return None
         
         bls_value = str(bls_value).strip()
-        print(f"DEBUG: Cleaned BLS value: '{bls_value}'")
         result = self.BLS_PATTERN.match(bls_value)
-        print(f"DEBUG: Pattern match result: {result}")
         return bls_value if result else None
     
     def _extract_german_name(self, row: pd.Series) -> Optional[str]:
@@ -231,38 +215,8 @@ class BLSDataValidator:
                             float_val = float(str_value)
                             if float_val >= 0:  # Only accept non-negative values
                                 nutrients[col_name] = float(float_val)  # Ensure Python float type
-                                print(f"DEBUG: Added nutrient {col_name} = {float_val} (type: {type(float_val)})")
-                    except (ValueError, TypeError) as e:
-                        print(f"DEBUG: Failed to convert {col_name} = '{value}': {e}")
+                    except (ValueError, TypeError):
                         continue
         
         return nutrients
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
