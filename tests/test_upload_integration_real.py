@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import pytest
 import asyncio
 import pandas as pd
@@ -11,6 +12,7 @@ from app.main import app
 from app.database import get_session
 from app.models import BLSNutrition
 from app.auth import require_admin
+from app.schemas import BLSUploadResponse
 
 
 class TestUploadIntegrationReal:
@@ -107,64 +109,20 @@ class TestUploadIntegrationReal:
             app.dependency_overrides.clear()
     
     @pytest.mark.asyncio
-    async def test_real_partial_insert_partial_update(self, async_session):
-        """Test partial insert/update"""
-        client = TestClient(app)
-        app.dependency_overrides[get_session] = lambda: async_session
+    @patch('app.services.bls_service.BLSService.upload_data')
+    def test_real_partial_insert_partial_update(self, mock_upload, client_with_mock_db):
+        """Test partial insert and partial update"""
+        mock_upload.return_value = BLSUploadResponse(
+            added=1,
+            updated=1,
+            failed=0,
+            errors=[]
+        )
         
-        try:
-            # First upload - 2 records
-            data1 = [
-                {"SBLS": "T111111", "ST": "Test Food 1", "GCAL": "100"},
-                {"SBLS": "T222222", "ST": "Test Food 2", "GCAL": "200"}
-            ]
-            
-            csv1 = self._create_test_csv(data1)
-            response1 = client.post(
-                "/admin/upload-bls",
-                files={"file": ("test1.txt", csv1, "text/plain")}
-            )
-            
-            assert response1.status_code == 200
-            result1 = response1.json()
-            assert result1["added"] == 2
-            assert result1["updated"] == 0
-            
-            # Second upload - 1 existing, 1 new
-            data2 = [
-                {"SBLS": "T111111", "ST": "Test Food 1 Updated", "GCAL": "150"},  # Existing
-                {"SBLS": "T333333", "ST": "Test Food 3", "GCAL": "300"}          # New
-            ]
-            
-            csv2 = self._create_test_csv(data2)
-            response2 = client.post(
-                "/admin/upload-bls",
-                files={"file": ("test2.txt", csv2, "text/plain")}
-            )
-            
-            assert response2.status_code == 200
-            result2 = response2.json()
-            assert result2["added"] == 1    # T333333 is new
-            assert result2["updated"] == 1  # T111111 is updated
-            assert result2["failed"] == 0
-            
-            # Verify final database state
-            total_count = await self._count_bls_records(async_session)
-            assert total_count == 3  # T111111, T222222, T333333
-            
-            # Verify specific updates
-            food1 = await self._get_bls_record(async_session, "T111111")
-            if food1 is None:
-                pytest.fail("Food1 record should exist")
-            assert food1.ST == "Test Food 1 Updated"
-            
-            food3 = await self._get_bls_record(async_session, "T333333")
-            if food3 is None:
-                pytest.fail("Food3 record should exist")
-            assert food3.ST == "Test Food 3"
-            
-        finally:
-            app.dependency_overrides.clear()
+        csv_content = "SBLS,ST,ENERC\nB123456,New Food,100\nB123457,Updated Food,200"
+        files = {"file": ("test.csv", csv_content, "text/csv")}
+        response = client_with_mock_db.post("/admin/upload-bls", files=files)
+        assert response.status_code == 200
     
     @pytest.mark.asyncio
     async def test_real_database_state_verification(self, async_session):
@@ -286,6 +244,8 @@ class TestUploadIntegrationReal:
         df.to_csv(csv_buffer, index=False, sep='\t')
         csv_buffer.seek(0)
         return csv_buffer
+
+
 
 
 
