@@ -1,63 +1,74 @@
-import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
+from pathlib import Path
+from unittest.mock import Mock
 
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from dotenv import load_dotenv
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
-from app.main import app, get_session
-from app.services.bls_service import BLSService
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
+from app.database import Base, get_session
 
-@pytest.fixture(scope="function")
-def mock_session():
-    """Mock database session for tests"""
-    session = AsyncMock()
+# Load environment variables
+load_dotenv()
+
+@pytest.fixture(scope="session")
+async def async_engine():
+    """Create async engine for testing"""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set for testing.")
     
-    # Create a proper mock result chain
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None  # For single item queries
-    mock_result.scalars.return_value.all.return_value = []  # For search queries
+    engine = create_async_engine(
+        database_url,
+        echo=False,  # Set to True for SQL debugging
+        future=True
+    )
     
-    # Make execute return the mock result
-    session.execute.return_value = mock_result
-    session.commit = AsyncMock()
-    session.rollback = AsyncMock()
-    session.close = AsyncMock()
+    # Create tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     
-    return session
-
-
-@pytest.fixture(scope="function")
-def mock_bls_service():
-    """Mock BLS service for testing"""
-    return AsyncMock(spec=BLSService)
-
-
-@pytest.fixture(scope="function")
-def client_with_mock_db(mock_session):
-    """Test client with mocked database and logger"""
-    app.dependency_overrides[get_session] = lambda: mock_session
+    yield engine
     
-    # Mock the logger to prevent logging errors in tests
-    with patch('app.main.app_logger') as mock_logger:
-        mock_logger.log_api_query = MagicMock()
-        mock_logger.log_upload_start = MagicMock()
-        mock_logger.log_upload_success = MagicMock()
-        mock_logger.log_upload_error = MagicMock()
-        mock_logger.logger = MagicMock()
-        
-        with TestClient(app) as client:
-            yield client
+    # Cleanup
+    await engine.dispose()
+
+@pytest.fixture
+async def async_session(async_engine):
+    """Create async session for each test"""
+    async_session_maker = async_sessionmaker(
+        async_engine, 
+        expire_on_commit=False
+    )
+    
+    async with async_session_maker() as session:
+        yield session
+
+@pytest.fixture
+def client_with_mock_db():
+    """Create test client with mocked database"""
+    from app.main import app
+    from fastapi.testclient import TestClient
+    
+    # Override dependencies for testing
+    def override_get_session():
+        return Mock()
+    
+    def override_auth():
+        return True  # Mock authentication
+    
+    app.dependency_overrides[get_session] = override_get_session
+    # Add auth override if you have authentication
+    # app.dependency_overrides[get_current_user] = override_auth
+    
+    client = TestClient(app)
+    yield client
     
     # Clean up
     app.dependency_overrides.clear()
-
-
-
-
-
-
-
-
 

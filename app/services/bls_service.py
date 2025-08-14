@@ -1,13 +1,14 @@
-from typing import Optional, List
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert
 import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert  # Use PostgreSQL-specific insert
+from typing import List, Dict, Tuple, Optional
 import re
+import io
 
-from app.models import BLSNutrition
-from app.schemas import BLSNutrientResponse, BLSSearchResponse, BLSUploadResponse
-from app.exceptions import BLSNotFoundError, BLSValidationError
+from ..models import BLSNutrition
+from ..schemas import BLSNutrientResponse, BLSSearchResponse, BLSUploadResponse, BulkImportResponse, ArticleImportResult
+from ..exceptions import BLSValidationError, BLSNotFoundError, FileUploadError
 
 
 class BLSService:
@@ -28,48 +29,176 @@ class BLSService:
             raise BLSNotFoundError(f"BLS number {bls_number} not found")
         
         return BLSNutrientResponse.from_orm_obj(bls_item)
-    
-    async def search_by_name(self, session: AsyncSession, name: str, limit: int = 50) -> BLSSearchResponse:
+
+    async def search_by_name(self, session: AsyncSession, name: str, limit: int = 10) -> BLSSearchResponse:
         """Search BLS entries by German name"""
-        if not name or not name.strip():
-            return BLSSearchResponse(results=[], count=0)
-        
-        search_term = f"%{name.strip().lower()}%"
-        stmt = select(BLSNutrition).where(BLSNutrition.name_german.ilike(search_term)).limit(limit)
+        # Use trigram similarity search
+        stmt = (
+            select(BLSNutrition)
+            .where(BLSNutrition.name_german.ilike(f"%{name}%"))
+            .limit(limit)
+        )
         
         result = await session.execute(stmt)
         items = result.scalars().all()
         
-        results = [BLSNutrientResponse.from_orm_obj(item) for item in items]
-        return BLSSearchResponse(results=results, count=len(results))
+        return BLSSearchResponse(
+            results=[BLSNutrientResponse.from_orm_obj(item) for item in items],
+            count=len(items)
+        )
     
     async def upload_data(self, session: AsyncSession, df: pd.DataFrame, filename: str) -> BLSUploadResponse:
         """Process and upload BLS data from DataFrame"""
         validator = BLSDataValidator()
         valid_records, errors = validator.validate_dataframe(df, filename)
         
-        added_count = await self._bulk_upsert(session, valid_records) if valid_records else 0
+        if not valid_records:
+            return BLSUploadResponse(added=0, updated=0, failed=len(errors), errors=errors[:10])
+        
+        # Process in batches to avoid parameter limits
+        batch_size = 1000  # Adjust based on column count
+        added_total = 0
+        updated_total = 0
+        
+        for i in range(0, len(valid_records), batch_size):
+            batch = valid_records[i:i + batch_size]
+            added, updated = await self._bulk_upsert_with_counts(session, batch)
+            added_total += added
+            updated_total += updated
         
         return BLSUploadResponse(
-            added=added_count,
-            updated=0,  # Simplified for now
+            added=added_total,
+            updated=updated_total,
             failed=len(errors),
-            errors=errors[:10]  # Limit error messages
+            errors=errors[:10]
         )
     
-    async def _bulk_upsert(self, session: AsyncSession, records: List[dict]) -> int:
-        """Perform bulk upsert operation"""
-        stmt = insert(BLSNutrition).values(records)
-        upsert_stmt = stmt.on_conflict_do_update(
-            index_elements=['SBLS'],  # Use actual DB column name, not 'bls_number'
-            set_={col.name: stmt.excluded[col.name] 
-                  for col in BLSNutrition.__table__.columns 
-                  if col.name != 'SBLS'}  # Exclude primary key column
-        )
+    async def _bulk_upsert_with_counts(self, session: AsyncSession, records: List[dict]) -> Tuple[int, int]:
+        """Perform bulk upsert with accurate insert/update counts"""
+        # First, try insert with DO NOTHING to count actual inserts
+        stmt_insert = insert(BLSNutrition).values(records)
+        insert_stmt = stmt_insert.on_conflict_do_nothing(index_elements=['SBLS'])
+        insert_stmt = insert_stmt.returning(BLSNutrition.SBLS)
         
-        await session.execute(upsert_stmt)
+        insert_result = await session.execute(insert_stmt)
+        inserted_ids = [row[0] for row in insert_result.fetchall()]
+        inserted_count = len(inserted_ids)
+        
+        # Then update existing records (those not inserted)
+        existing_records = [r for r in records if r['SBLS'] not in inserted_ids]
+        updated_count = 0
+        
+        if existing_records:
+            stmt_update = insert(BLSNutrition).values(existing_records)
+            update_stmt = stmt_update.on_conflict_do_update(
+                index_elements=['SBLS'],
+                set_={col.name: stmt_update.excluded[col.name] 
+                      for col in BLSNutrition.__table__.columns 
+                      if col.name != 'SBLS'}
+            )
+            await session.execute(update_stmt)
+            updated_count = len(existing_records)
+        
         await session.commit()
-        return len(records)
+        return inserted_count, updated_count
+
+    async def bulk_import_articles(self, session: AsyncSession, df: pd.DataFrame) -> BulkImportResponse:
+        """Process bulk import for articles with BLS numbers - optimized batch lookup"""
+        results = []
+        successful = 0
+        failed = 0
+        
+        # Extract all unique BLS numbers for batch lookup
+        bls_numbers = df['bls_number'].dropna().astype(str).str.strip().unique().tolist()
+        
+        # Batch fetch all BLS records at once
+        bls_lookup = await self._batch_get_bls_records(session, bls_numbers)
+        
+        for row_num, row in enumerate(df.itertuples(index=False), start=1):
+            try:
+                article_id = str(getattr(row, 'article_id', '')).strip()
+                bls_number = str(getattr(row, 'bls_number', '')).strip()
+                
+                if not article_id:
+                    results.append(ArticleImportResult(
+                        article_id=f"Row_{row_num}",
+                        bls_number=bls_number,
+                        status="failed",
+                        error="Missing article_id"
+                    ))
+                    failed += 1
+                    continue
+                
+                if not bls_number:
+                    results.append(ArticleImportResult(
+                        article_id=article_id,
+                        bls_number="",
+                        status="failed",
+                        error="Missing bls_number"
+                    ))
+                    failed += 1
+                    continue
+                
+                # Validate BLS format
+                if not self.BLS_PATTERN.match(bls_number):
+                    results.append(ArticleImportResult(
+                        article_id=article_id,
+                        bls_number=bls_number,
+                        status="failed",
+                        error=f"Invalid BLS format: {bls_number}"
+                    ))
+                    failed += 1
+                    continue
+                
+                # Look up from batch-fetched data
+                bls_data = bls_lookup.get(bls_number)
+                if not bls_data:
+                    results.append(ArticleImportResult(
+                        article_id=article_id,
+                        bls_number=bls_number,
+                        status="failed",
+                        error=f"BLS number {bls_number} not found"
+                    ))
+                    failed += 1
+                    continue
+                
+                results.append(ArticleImportResult(
+                    article_id=article_id,
+                    bls_number=bls_number,
+                    status="success",
+                    nutrients=bls_data.nutrients
+                ))
+                successful += 1
+                
+            except Exception as e:
+                results.append(ArticleImportResult(
+                    article_id=article_id if 'article_id' in locals() else f"Row_{row_num}",
+                    bls_number=bls_number if 'bls_number' in locals() else "",
+                    status="failed",
+                    error=f"Unexpected error: {str(e)}"
+                ))
+                failed += 1
+        
+        return BulkImportResponse(
+            processed=len(df),
+            successful=successful,
+            failed=failed,
+            results=results
+        )
+    
+    async def _batch_get_bls_records(self, session: AsyncSession, bls_numbers: List[str]) -> Dict[str, BLSNutrientResponse]:
+        """Batch fetch BLS records to avoid N+1 queries"""
+        if not bls_numbers:
+            return {}
+        
+        stmt = select(BLSNutrition).where(BLSNutrition.SBLS.in_(bls_numbers))
+        result = await session.execute(stmt)
+        records = result.scalars().all()
+        
+        return {
+            record.SBLS: BLSNutrientResponse.from_orm_obj(record) 
+            for record in records
+        }
 
 
 class BLSDataValidator:
@@ -219,4 +348,8 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
+
+
+
 

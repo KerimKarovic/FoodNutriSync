@@ -8,3 +8,5 @@ pandas
 openpyxl
 jinja2
 python-multipart
+PyJWT[crypto]
+httpx

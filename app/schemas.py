@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 class BLSNutrientResponse(BaseModel):
     bls_number: str
@@ -32,3 +32,15 @@ class BLSUploadResponse(BaseModel):
     failed: int
     errors: list[str] = Field(default_factory=list)
 
+class ArticleImportResult(BaseModel):
+    article_id: str
+    bls_number: str
+    status: str  # "success" or "failed"
+    nutrients: Optional[Dict[str, Optional[float]]] = None
+    error: Optional[str] = None
+
+class BulkImportResponse(BaseModel):
+    processed: int
+    successful: int
+    failed: int
+    results: List[ArticleImportResult]
