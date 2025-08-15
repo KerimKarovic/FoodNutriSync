@@ -3,54 +3,19 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, Mock, AsyncMock
 from app.exceptions import BLSNotFoundError, BLSValidationError
 from app.schemas import BLSNutrientResponse, BLSSearchResponse, BLSUploadResponse
-from app.database import get_session
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    from app.main import app
-    return TestClient(app)
+# REMOVE: Duplicate client fixture (use the one from conftest.py)
 
-@pytest.fixture
-def client_with_mock_db():
-    """Create test client with mocked database"""
-    from app.main import app
-    from app.auth import get_current_user, require_admin
-    
-    def override_get_session():
-        return Mock()
-    
-    def override_get_current_user():
-        return {
-            "user_id": "test_user", 
-            "roles": ["User", "Admin"],
-            "payload": {"sub": "test_user", "roles": ["User", "Admin"]}
-        }
-    
-    def override_require_admin():
-        return {
-            "user_id": "admin_user", 
-            "roles": ["Admin"],
-            "payload": {"sub": "admin_user", "roles": ["Admin"]}
-        }
-    
-    app.dependency_overrides[get_session] = override_get_session
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[require_admin] = override_require_admin
-    
-    client = TestClient(app)
-    yield client
-    app.dependency_overrides.clear()
-
-class TestHealthEndpoints:
-    """Test basic health and info endpoints"""
-    
-    def test_root_endpoint(self, client):
-        """Test root endpoint returns basic info"""
-        response = client.get("/")
+class TestHealthEndpoint:
+    def test_health_endpoint(self, client_with_mock_db):
+        response = client_with_mock_db.get("/health")
         assert response.status_code == 200
-        data = response.json()
-        assert "message" in data or "version" in data
+        assert response.json() == {"status": "ok"}
+
+    def test_root_endpoint(self, client_with_mock_db):
+        response = client_with_mock_db.get("/")
+        assert response.status_code == 200
+        assert "NutriSync API" in response.json()["message"]
 
 class TestBLSEndpoints:
     """Test BLS API endpoints"""
@@ -277,6 +242,7 @@ class TestBulkUploadGuards:
         # Verify counts are aggregated correctly
         assert body.get("added", 0) + body.get("updated", 0) == 1500
         assert body.get("failed", 0) == 0
+
 
 
 

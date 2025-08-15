@@ -1,3 +1,22 @@
-# Environment files
+# Environment files (never commit real credentials)
 .env
-.env.*
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log

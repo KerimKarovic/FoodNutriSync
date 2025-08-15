@@ -55,19 +55,23 @@ class BLSService:
         if not valid_records:
             return BLSUploadResponse(added=0, updated=0, failed=len(errors), errors=errors[:10])
         
-        # Process in batches to avoid parameter limits
-        batch_size = 1000  # Adjust based on column count
+        # Calculate safe batch size based on column count
+        # PostgreSQL limit: 32,767 parameters
+        # With 140 columns per record: 32,767 / 140 = ~234 records max
+        # Use conservative estimate for safety
+        estimated_cols_per_record = 140  # Real BLS has ~140 columns
+        safe_batch_size = min(100, 25000 // estimated_cols_per_record)
+        
         added_total = 0
         updated_total = 0
         
         try:
-            for i in range(0, len(valid_records), batch_size):
-                batch = valid_records[i:i + batch_size]
+            for i in range(0, len(valid_records), safe_batch_size):
+                batch = valid_records[i:i + safe_batch_size]
                 added, updated = await self._bulk_upsert_with_counts(session, batch)
                 added_total += added
                 updated_total += updated
         except Exception:
-            # Don't rollback here - let _bulk_upsert_with_counts handle it
             raise
         
         return BLSUploadResponse(
@@ -96,8 +100,17 @@ class BLSService:
         if not filtered_records:
             return 0, 0
 
-        # Simple upsert without checking existing records first
-        # This avoids any concurrent operations
+        # Check which records already exist BEFORE upsert
+        bls_numbers = [record['SBLS'] for record in filtered_records]
+        existing_stmt = select(BLSNutrition.bls_number).where(BLSNutrition.bls_number.in_(bls_numbers))
+        result = await session.execute(existing_stmt)
+        existing_bls = {row[0] for row in result.fetchall()}
+        
+        # Count what will be inserted vs updated
+        will_insert = sum(1 for record in filtered_records if record['SBLS'] not in existing_bls)
+        will_update = len(filtered_records) - will_insert
+        
+        # Perform the upsert
         stmt = insert(table).values(filtered_records)
         
         # Only update columns that are actually present in the input
@@ -122,8 +135,7 @@ class BLSService:
         try:
             await session.execute(upsert_stmt)
             await session.commit()
-            # Return conservative estimate - assume all are updates
-            return 0, len(filtered_records)
+            return will_insert, will_update
         except Exception:
             await session.rollback()
             raise
@@ -232,37 +244,7 @@ class BLSDataValidator:
     
     BLS_PATTERN = re.compile(r'^[B-Y]\d{6}$')
     
-    # Actual BLS file column order (what we receive)
-    BLS_FILE_COLUMNS = [
-        'SBLS', 'ST', 'STE', 'GCAL', 'GJ', 'GCALZB', 'GJZB', 'ZW', 'ZE', 'ZF', 'ZK', 'ZB', 'ZM', 'ZO', 'ZA',
-        'VA', 'VAR', 'VAC', 'VD', 'VE', 'VEAT', 'VK', 'VB1', 'VB2', 'VB3', 'VB3A', 'VB5', 'VB6', 'VB7', 'VB9G', 'VB12', 'VC',
-        'MNA', 'MK', 'MCA', 'MMG', 'MP', 'MS', 'MCL', 'MFE', 'MZN', 'MCU', 'MMN', 'MF', 'MJ',
-        'KAM', 'KAS', 'KAX', 'KA', 'KMT', 'KMF', 'KMG', 'KM', 'KDS', 'KDM', 'KDL', 'KD', 'KMD',
-        'KPOR', 'KPON', 'KPG', 'KPS', 'KP', 'KBP', 'KBH', 'KBU', 'KBC', 'KBL', 'KBW', 'KBN',
-        'EILE', 'ELEU', 'ELYS', 'EMET', 'ECYS', 'EPHE', 'ETYR', 'ETHR', 'ETRP', 'EVAL', 'EARG', 'EHIS', 'EEA',
-        'EALA', 'EASP', 'EGLU', 'EGLY', 'EPRO', 'ESER', 'ENA', 'EH', 'EP',
-        'F40', 'F60', 'F80', 'F100', 'F120', 'F140', 'F150', 'F160', 'F170', 'F180', 'F200', 'F220', 'F240', 'FS',
-        'F141', 'F151', 'F161', 'F171', 'F181', 'F201', 'F221', 'F241', 'FU',
-        'F162', 'F164', 'F182', 'F183', 'F184', 'F193', 'F202', 'F203', 'F204', 'F205',
-        'F222', 'F223', 'F224', 'F225', 'F226', 'FP', 'FK', 'FM', 'FL', 'FO3', 'FO6', 'FG', 'FC',
-        'GFPS', 'GKB', 'GMKO', 'GP'
-    ]
-    
-    # Your DB column order (what we need to map to)
-    DB_COLUMNS = [
-        'SBLS', 'ST', 'GCAL', 'GJ', 'GCALZB', 'GJZB', 'ZW', 'ZE', 'ZF', 'ZK', 'ZB', 'ZM', 'ZO', 'ZA',
-        'VA', 'VAR', 'VAC', 'VD', 'VE', 'VEAT', 'VK', 'VB1', 'VB2', 'VB3', 'VB3A', 'VB5', 'VB6', 'VB7', 'VB9G', 'VB12', 'VC',
-        'MNA', 'MK', 'MCA', 'MMG', 'MP', 'MS', 'MCL', 'MFE', 'MZN', 'MCU', 'MMN', 'MF', 'MJ',
-        'KAM', 'KAS', 'KAX', 'KA', 'KMT', 'KMF', 'KMG', 'KM', 'KDS', 'KDM', 'KDL', 'KD', 'KMD',
-        'KPOR', 'KPON', 'KPG', 'KPS', 'KP', 'KBP', 'KBH', 'KBU', 'KBC', 'KBL', 'KBW', 'KBN',
-        'EILE', 'ELEU', 'ELYS', 'EMET', 'ECYS', 'EPHE', 'ETYR', 'ETHR', 'ETRP', 'EVAL', 'EARG', 'EHIS', 'EEA',
-        'EALA', 'EASP', 'EGLU', 'EGLY', 'EPRO', 'ESER', 'ENA', 'EH', 'EP',
-        'F40', 'F60', 'F80', 'F100', 'F120', 'F140', 'F150', 'F160', 'F170', 'F180', 'F200', 'F220', 'F240', 'FS',
-        'F141', 'F151', 'F161', 'F171', 'F181', 'F201', 'F221', 'F241', 'FU',
-        'F162', 'F164', 'F182', 'F183', 'F184', 'F193', 'F202', 'F203', 'F204', 'F205',
-        'F222', 'F223', 'F224', 'F225', 'F226', 'FP', 'FK', 'FM', 'FL', 'FO3', 'FO6', 'FG', 'FC',
-        'GFPS', 'GKB', 'GMKO', 'GP', 'STE'
-    ]
+    # REMOVE: BLS_FILE_COLUMNS and DB_COLUMNS - no longer needed with correct schema
     
     def validate_dataframe(self, df: pd.DataFrame, filename: str) -> Tuple[List[dict], List[str]]:
         """Validate DataFrame and return valid records + errors"""
@@ -415,6 +397,16 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
+
+
+
+
+
+
+
+
+
 
 
 

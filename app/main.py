@@ -1,14 +1,12 @@
-from io import BytesIO
-import io
-import csv
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import AsyncGenerator
 import time
+import csv
+import io
+from io import BytesIO
 
 from .database import SessionLocal
 from .services.bls_service import BLSService
@@ -18,7 +16,7 @@ from .logging_config import app_logger
 from .auth import get_current_user, require_admin
 
 app = FastAPI(title="NutriSync", version="1.0.0")
-templates = Jinja2Templates(directory="app/templates")
+# REMOVE: templates = Jinja2Templates(directory="app/templates")
 
 # Service instances
 bls_service = BLSService()
@@ -170,11 +168,8 @@ async def upload_bls(
                     skipinitialspace=True,
                     on_bad_lines='skip'  # Skip problematic lines
                 )
-                print(f"DEBUG: Successfully read with encoding: {encoding}")
-                print(f"DEBUG: Columns after reading: {list(df.columns)}")
                 break
             except (UnicodeDecodeError, pd.errors.EmptyDataError, UnicodeError) as e:
-                print(f"DEBUG: Failed with encoding {encoding}: {e}")
                 continue
         
         if df is None:
@@ -182,7 +177,6 @@ async def upload_bls(
         
         # Clean column names (remove BOM if present)
         df.columns = [col.lstrip('ÿþ\ufeff').strip() for col in df.columns]
-        print(f"DEBUG: Cleaned columns: {list(df.columns)}")
         
         # Validate required columns are present
         required_columns = ['SBLS', 'ST']
@@ -199,7 +193,6 @@ async def upload_bls(
         initial_count = len(df)
         df = df.dropna(subset=['SBLS'])  # Remove rows with NaN SBLS
         df = df[df['SBLS'].astype(str).str.strip() != '']  # Remove rows with empty SBLS
-        print(f"DEBUG: Filtered {initial_count} -> {len(df)} rows (removed {initial_count - len(df)} empty rows)")
         
         # Process data
         result = await bls_service.upload_data(session, df, filename)
@@ -325,9 +318,9 @@ async def bulk_import_articles(
 async def health():
     return {"status": "ok"}
 
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
-    return templates.TemplateResponse("upload.html", {"request": request})
+# REMOVE: @app.get("/admin", response_class=HTMLResponse)
+# REMOVE: async def admin_page(request: Request):
+# REMOVE:     return templates.TemplateResponse("upload.html", {"request": request})
 
 
 

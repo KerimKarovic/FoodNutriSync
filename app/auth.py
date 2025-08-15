@@ -4,11 +4,10 @@ from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, List
 import os
-from functools import lru_cache
-import asyncio
 from datetime import datetime
 
-security = HTTPBearer()
+
+security = HTTPBearer(auto_error=False)
 
 class JWTAuth:
     def __init__(self):
@@ -82,6 +81,20 @@ jwt_auth = JWTAuth()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Dependency to get current authenticated user"""
+    # Development bypass for local testing
+    if os.getenv("ENVIRONMENT") == "development":
+        return {
+            "user_id": "dev_admin",
+            "roles": ["Admin", "BLS-Data-Reader"],
+            "payload": {"sub": "dev_admin", "roles": ["Admin", "BLS-Data-Reader"]}
+        }
+    
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+    
     token = credentials.credentials
     payload = await jwt_auth.validate_token(token)
     
@@ -111,6 +124,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # Optional: Role-specific dependencies
 async def require_admin(current_user: dict = Depends(get_current_user)):
     """Require admin role"""
+    # Development bypass
+    if os.getenv("ENVIRONMENT") == "development":
+        return {
+            "user_id": "dev_admin",
+            "roles": ["Admin", "BLS-Data-Reader"],
+            "payload": {"sub": "dev_admin", "roles": ["Admin", "BLS-Data-Reader"]}
+        }
+    
     if "Admin" not in current_user["roles"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
