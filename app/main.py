@@ -24,7 +24,12 @@ bls_service = BLSService()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8000"],
+    allow_origins=[
+        "https://company-frontend.com",  # Real frontend domain
+        "https://admin-portal.company.com",  # Admin interface
+        "http://localhost:3000",  # Keep for local development
+    ],
+    allow_credentials=True,  # Allow JWT cookies/headers
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -318,9 +323,7 @@ async def bulk_import_articles(
 async def health():
     return {"status": "ok"}
 
-# REMOVE: @app.get("/admin", response_class=HTMLResponse)
-# REMOVE: async def admin_page(request: Request):
-# REMOVE:     return templates.TemplateResponse("upload.html", {"request": request})
+
 
 
 
