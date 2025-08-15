@@ -75,26 +75,36 @@ class BLSService:
     
     async def _bulk_upsert_with_counts(self, session: AsyncSession, records: List[dict]) -> Tuple[int, int]:
         """Perform bulk upsert with accurate insert/update counts"""
+        # Get the table object for real DB column names
+        table = BLSNutrition.__table__
+        db_cols = {c.name for c in table.c}  # {'SBLS','ST','STE','GCAL', ...}
+        
+        # Filter records to only include valid DB columns
+        filtered_records = [
+            {k: v for k, v in record.items() if k in db_cols}
+            for record in records
+        ]
+        
         # First, try insert with DO NOTHING to count actual inserts
-        stmt_insert = insert(BLSNutrition).values(records)
-        insert_stmt = stmt_insert.on_conflict_do_nothing(index_elements=['SBLS'])
-        insert_stmt = insert_stmt.returning(BLSNutrition.SBLS)
+        stmt_insert = insert(table).values(filtered_records)
+        insert_stmt = stmt_insert.on_conflict_do_nothing(index_elements=[table.c.SBLS])
+        insert_stmt = insert_stmt.returning(table.c.SBLS)
         
         insert_result = await session.execute(insert_stmt)
         inserted_ids = [row[0] for row in insert_result.fetchall()]
         inserted_count = len(inserted_ids)
         
         # Then update existing records (those not inserted)
-        existing_records = [r for r in records if r['SBLS'] not in inserted_ids]
+        existing_records = [r for r in filtered_records if r['SBLS'] not in inserted_ids]
         updated_count = 0
         
         if existing_records:
-            stmt_update = insert(BLSNutrition).values(existing_records)
+            stmt_update = insert(table).values(existing_records)
             update_stmt = stmt_update.on_conflict_do_update(
-                index_elements=['SBLS'],
-                set_={col.name: stmt_update.excluded[col.name] 
-                      for col in BLSNutrition.__table__.columns 
-                      if col.name != 'SBLS'}
+                index_elements=[table.c.SBLS],
+                set_={c.name: stmt_update.excluded[c.name] 
+                      for c in table.c 
+                      if c.name != 'SBLS'}
             )
             await session.execute(update_stmt)
             updated_count = len(existing_records)
@@ -348,6 +358,7 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
 
 
 

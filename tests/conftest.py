@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, MagicMock
 from sqlalchemy.ext.asyncio import AsyncSession
 
 @pytest.fixture
@@ -44,8 +44,14 @@ def client_with_mock_db():
 @pytest.fixture
 def async_session():
     """Mock async session for real database tests"""
-    session = AsyncMock(spec=AsyncSession)
+    session = MagicMock(spec=AsyncSession)
+    # Make async methods return regular values, not coroutines
+    session.execute = MagicMock()
+    session.commit = MagicMock()
+    session.rollback = MagicMock()
+    session.close = MagicMock()
     return session
+
 
 
 

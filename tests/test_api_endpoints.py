@@ -165,22 +165,18 @@ class TestBulkUploadGuards:
         assert body.get("failed", 0) >= 1
 
     @pytest.mark.asyncio
-    @patch("app.services.bls_service.BLSService._bulk_upsert_with_counts", autospec=True)
-    def test_upload_txt_wrong_delimiter_semicolon_yields_validation_errors(self, mock_upsert, client_with_mock_db):
+    def test_upload_txt_wrong_delimiter_semicolon_yields_validation_errors(self, client_with_mock_db):
         """
         Semicolon-delimited .txt should not parse as expected by read_table (tab default),
         leading to missing mandatory columns -> validation errors.
         """
-        mock_upsert.return_value = (0, 0)
-
         content = "SBLS;ST;GCAL\nB123458;Kirsche;12,3\n"
         files = {"file": ("bls_semicolon.txt", content.encode("utf-8"), "text/plain")}
 
         r = client_with_mock_db.post("/admin/upload-bls", files=files)
-        assert r.status_code == 200, r.text
+        assert r.status_code == 400, f"Expected 400 but got {r.status_code}: {r.text}"
         body = r.json()
-        assert body.get("failed", 0) >= 1
-        mock_upsert.assert_not_called()
+        assert "Invalid .txt structure" in body.get("detail", "")
 
     @pytest.mark.asyncio
     def test_upload_counts_added_vs_updated_are_surfaced_by_endpoint(self, client_with_mock_db):
@@ -281,6 +277,10 @@ class TestBulkUploadGuards:
         # Verify counts are aggregated correctly
         assert body.get("added", 0) + body.get("updated", 0) == 1500
         assert body.get("failed", 0) == 0
+
+
+
+
 
 
 

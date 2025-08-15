@@ -181,8 +181,19 @@ async def upload_bls(
             raise HTTPException(400, "Could not decode file with any supported encoding")
         
         # Clean column names (remove BOM if present)
-        df.columns = [col.lstrip('ÿþ').strip() for col in df.columns]
+        df.columns = [col.lstrip('ÿþ\ufeff').strip() for col in df.columns]
         print(f"DEBUG: Cleaned columns: {list(df.columns)}")
+        
+        # Validate required columns are present
+        required_columns = ['SBLS', 'ST']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            available_cols = list(df.columns)
+            raise HTTPException(
+                400, 
+                f"Invalid .txt structure: expected TAB-delimited with {required_columns} headers. "
+                f"Found columns: {available_cols}. Missing: {missing_columns}"
+            )
         
         # Remove empty rows - filter out rows where SBLS is NaN or empty
         initial_count = len(df)
@@ -204,6 +215,8 @@ async def upload_bls(
         
         return result
         
+    except HTTPException:
+        raise  # Let HTTPException pass through unchanged
     except (BLSValidationError, FileUploadError) as e:
         duration_ms = (time.time() - start_time) * 1000
         app_logger.log_upload_error(
