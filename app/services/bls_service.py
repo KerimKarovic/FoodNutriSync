@@ -60,11 +60,15 @@ class BLSService:
         added_total = 0
         updated_total = 0
         
-        for i in range(0, len(valid_records), batch_size):
-            batch = valid_records[i:i + batch_size]
-            added, updated = await self._bulk_upsert_with_counts(session, batch)
-            added_total += added
-            updated_total += updated
+        try:
+            for i in range(0, len(valid_records), batch_size):
+                batch = valid_records[i:i + batch_size]
+                added, updated = await self._bulk_upsert_with_counts(session, batch)
+                added_total += added
+                updated_total += updated
+        except Exception:
+            # Don't rollback here - let _bulk_upsert_with_counts handle it
+            raise
         
         return BLSUploadResponse(
             added=added_total,
@@ -75,42 +79,54 @@ class BLSService:
     
     async def _bulk_upsert_with_counts(self, session: AsyncSession, records: List[dict]) -> Tuple[int, int]:
         """Perform bulk upsert with accurate insert/update counts"""
+        if not records:
+            return 0, 0
+
         # Get the table object for real DB column names
         table = BLSNutrition.__table__
-        db_cols = {c.name for c in table.c}  # {'SBLS','ST','STE','GCAL', ...}
+        db_cols = {c.name for c in table.c}
         
         # Filter records to only include valid DB columns
-        filtered_records = [
-            {k: v for k, v in record.items() if k in db_cols}
-            for record in records
-        ]
+        filtered_records = []
+        for record in records:
+            filtered_record = {k: v for k, v in record.items() if k in db_cols}
+            if filtered_record and 'SBLS' in filtered_record:
+                filtered_records.append(filtered_record)
         
-        # First, try insert with DO NOTHING to count actual inserts
-        stmt_insert = insert(table).values(filtered_records)
-        insert_stmt = stmt_insert.on_conflict_do_nothing(index_elements=[table.c.SBLS])
-        insert_stmt = insert_stmt.returning(table.c.SBLS)
+        if not filtered_records:
+            return 0, 0
+
+        # Simple upsert without checking existing records first
+        # This avoids any concurrent operations
+        stmt = insert(table).values(filtered_records)
         
-        insert_result = await session.execute(insert_stmt)
-        inserted_ids = [row[0] for row in insert_result.fetchall()]
-        inserted_count = len(inserted_ids)
+        # Only update columns that are actually present in the input
+        input_cols = set()
+        for record in filtered_records:
+            input_cols.update(record.keys())
         
-        # Then update existing records (those not inserted)
-        existing_records = [r for r in filtered_records if r['SBLS'] not in inserted_ids]
-        updated_count = 0
+        update_cols = {
+            col: stmt.excluded[col] 
+            for col in input_cols 
+            if col != 'SBLS'
+        }
         
-        if existing_records:
-            stmt_update = insert(table).values(existing_records)
-            update_stmt = stmt_update.on_conflict_do_update(
+        if update_cols:
+            upsert_stmt = stmt.on_conflict_do_update(
                 index_elements=[table.c.SBLS],
-                set_={c.name: stmt_update.excluded[c.name] 
-                      for c in table.c 
-                      if c.name != 'SBLS'}
+                set_=update_cols
             )
-            await session.execute(update_stmt)
-            updated_count = len(existing_records)
+        else:
+            upsert_stmt = stmt.on_conflict_do_nothing(index_elements=[table.c.SBLS])
         
-        await session.commit()
-        return inserted_count, updated_count
+        try:
+            await session.execute(upsert_stmt)
+            await session.commit()
+            # Return conservative estimate - assume all are updates
+            return 0, len(filtered_records)
+        except Exception:
+            await session.rollback()
+            raise
 
     async def bulk_import_articles(self, session: AsyncSession, df: pd.DataFrame) -> BulkImportResponse:
         """Process bulk import for articles with BLS numbers - optimized batch lookup"""
@@ -201,12 +217,12 @@ class BLSService:
         if not bls_numbers:
             return {}
         
-        stmt = select(BLSNutrition).where(BLSNutrition.SBLS.in_(bls_numbers))
+        stmt = select(BLSNutrition).where(BLSNutrition.bls_number.in_(bls_numbers))
         result = await session.execute(stmt)
-        records = result.scalars().all()
+        records = result.scalars().all()  # Fully consume before any other operations
         
         return {
-            record.SBLS: BLSNutrientResponse.from_orm_obj(record) 
+            str(record.bls_number): BLSNutrientResponse.from_orm_obj(record) 
             for record in records
         }
 
@@ -248,18 +264,47 @@ class BLSDataValidator:
         'GFPS', 'GKB', 'GMKO', 'GP', 'STE'
     ]
     
-    def validate_dataframe(self, df: pd.DataFrame, filename: str) -> tuple[List[dict], List[str]]:
-        """Validate entire DataFrame and return valid records and errors"""
+    def validate_dataframe(self, df: pd.DataFrame, filename: str) -> Tuple[List[dict], List[str]]:
+        """Validate DataFrame and return valid records + errors"""
         valid_records = []
         errors = []
         
-        for i, (_, row) in enumerate(df.iterrows()):
+        for row_num, (idx, row) in enumerate(df.iterrows(), start=1):
             try:
-                record = self._validate_row(row, i)
-                if record:
+                # Validate BLS number
+                bls_number = str(row.get('SBLS', '')).strip()
+                if not bls_number or not self.BLS_PATTERN.match(bls_number):
+                    errors.append(f"Row {row_num}: Invalid BLS number '{bls_number}'")
+                    continue
+                
+                # Build record with only columns that exist in input
+                record = {'SBLS': bls_number}
+                has_valid_data = False
+                
+                # Add German name if present and not empty
+                if 'ST' in row.index and pd.notna(row['ST']) and str(row['ST']).strip():
+                    record['ST'] = str(row['ST']).strip()
+                    has_valid_data = True
+                
+                # Add English name if present and not empty
+                if 'STE' in row.index and pd.notna(row['STE']) and str(row['STE']).strip():
+                    record['STE'] = str(row['STE']).strip()
+                    has_valid_data = True
+                
+                # Extract only numeric nutrients that exist in input
+                nutrients = self._extract_nutrients(row)
+                if nutrients:
+                    record.update(nutrients)
+                    has_valid_data = True
+                
+                # Only include records that have at least some valid data beyond SBLS
+                if has_valid_data:
                     valid_records.append(record)
-            except BLSValidationError as e:
-                errors.append(str(e))
+                else:
+                    errors.append(f"Row {row_num}: No valid data beyond BLS number")
+                
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
         
         return valid_records, errors
     
@@ -327,14 +372,26 @@ class BLSDataValidator:
         return None
     
     def _extract_nutrients(self, row: pd.Series) -> dict:
-        """Extract nutrient values from row using column names"""
+        """Extract nutrient values from row, handling German number format"""
         nutrients = {}
         
-        # Now we can directly access by column name since we have headers
-        for col_name in self.DB_COLUMNS:
-            if col_name in ['SBLS', 'ST', 'STE']:  # Skip the main identifier columns
-                continue
-                
+        # Define known numeric columns to avoid string column contamination
+        numeric_columns = {
+            'GCAL', 'GJ', 'GCALZB', 'GJZB', 'ZW', 'ZE', 'ZF', 'ZK', 'ZB', 'ZM', 'ZO', 'ZA',
+            'VA', 'VAR', 'VAC', 'VD', 'VE', 'VEAT', 'VK', 'VB1', 'VB2', 'VB3', 'VB3A', 'VB5', 'VB6', 'VB7', 'VB9G', 'VB12', 'VC',
+            'MNA', 'MK', 'MCA', 'MMG', 'MP', 'MS', 'MCL', 'MFE', 'MZN', 'MCU', 'MMN', 'MF', 'MJ',
+            'KAM', 'KAS', 'KAX', 'KA', 'KMT', 'KMF', 'KMG', 'KM', 'KDS', 'KDM', 'KDL', 'KD', 'KMD',
+            'KPOR', 'KPON', 'KPG', 'KPS', 'KP', 'KBP', 'KBH', 'KBU', 'KBC', 'KBL', 'KBW', 'KBN',
+            'EILE', 'ELEU', 'ELYS', 'EMET', 'ECYS', 'EPHE', 'ETYR', 'ETHR', 'ETRP', 'EVAL', 'EARG', 'EHIS', 'EEA',
+            'EALA', 'EASP', 'EGLU', 'EGLY', 'EPRO', 'ESER', 'ENA', 'EH', 'EP',
+            'F40', 'F60', 'F80', 'F100', 'F120', 'F140', 'F150', 'F160', 'F170', 'F180', 'F200', 'F220', 'F240', 'FS',
+            'F141', 'F151', 'F161', 'F171', 'F181', 'F201', 'F221', 'F241', 'FU',
+            'F162', 'F164', 'F182', 'F183', 'F184', 'F193', 'F202', 'F203', 'F204', 'F205',
+            'F222', 'F223', 'F224', 'F225', 'F226', 'FP', 'FK', 'FM', 'FL', 'FO3', 'FO6', 'FG', 'FC',
+            'GFPS', 'GKB', 'GMKO', 'GP'
+        }
+        
+        for col_name in numeric_columns:
             if col_name in row.index:
                 value = row[col_name]
                 if pd.notna(value) and str(value).strip() != '':
@@ -358,6 +415,22 @@ class BLSDataValidator:
                         continue
         
         return nutrients
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

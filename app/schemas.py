@@ -10,15 +10,15 @@ class BLSNutrientResponse(BaseModel):
     def from_orm_obj(cls, orm_obj):
         nutrients = {}
         for column in orm_obj.__table__.columns:
-            if column.name not in ['bls_number', 'name_german']:
+            if column.name not in ['SBLS', 'ST']:  # Use DB column names for exclusion
                 value = getattr(orm_obj, column.name.lower(), None)
                 if value is not None:
                     # Return UPPERCASE nutrient keys (BLS standard)
                     nutrients[column.name] = value
         
         return cls(
-            bls_number=orm_obj.bls_number,
-            name_german=orm_obj.name_german,
+            bls_number=orm_obj.bls_number,  # Use Python attribute name
+            name_german=orm_obj.name_german,  # Use Python attribute name
             nutrients=nutrients
         )
 

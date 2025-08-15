@@ -123,7 +123,7 @@ async def upload_bls(
     request: Request,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(require_admin)  # Require admin role
+    current_user: dict = Depends(require_admin)
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
