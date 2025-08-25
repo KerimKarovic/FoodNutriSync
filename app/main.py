@@ -1,22 +1,25 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import AsyncGenerator
 import time
 import csv
+import os
 import io
 from io import BytesIO
-
+from datetime import datetime
 from .database import SessionLocal
 from .services.bls_service import BLSService
-from .schemas import BLSSearchResponse, BLSUploadResponse, BulkImportResponse
+from .schemas import BLSSearchResponse, BLSUploadResponse  # Remove BulkImportResponse
 from .exceptions import BLSNotFoundError, BLSValidationError, FileUploadError
 from .logging_config import app_logger
 from .auth import get_current_user, require_admin
+import chardet
 
 app = FastAPI(title="NutriSync", version="1.0.0")
-# REMOVE: templates = Jinja2Templates(directory="app/templates")
+app_start_time = time.time()
 
 # Service instances
 bls_service = BLSService()
@@ -43,10 +46,6 @@ def get_client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for")
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
-
-@app.get("/")
-async def root():
-    return {"message": "NutriSync API", "version": "1.0.0"}
 
 
 @app.get(
@@ -120,7 +119,7 @@ async def get_bls_by_number(
     "/admin/upload-bls",
     response_model=BLSUploadResponse,
     tags=["Admin"],
-    summary="Upload BLS .txt"
+    summary="Upload BLS Dataset (Full Replacement)"
 )
 async def upload_bls(
     request: Request,
@@ -143,63 +142,55 @@ async def upload_bls(
         raise HTTPException(413, "File too large (max 10MB)")
 
     try:
-        app_logger.log_upload_start(
-            filename=filename,
-            file_size=len(content),
-            user_ip=client_ip
+        # Detect encoding
+        detected = chardet.detect(content)
+        encoding = detected.get('encoding') or 'utf-8'
+        
+        # Handle common BOM cases
+        if content.startswith(b'\xff\xfe'):
+            encoding = 'utf-16-le'
+        elif content.startswith(b'\xfe\xff'):
+            encoding = 'utf-16-be'
+        elif content.startswith(b'\xef\xbb\xbf'):
+            encoding = 'utf-8-sig'
+        
+        # Decode with detected encoding
+        try:
+            content_str = content.decode(encoding)
+        except UnicodeDecodeError:
+            # Fallback encodings for German BLS files
+            for fallback_encoding in ['windows-1252', 'iso-8859-1', 'cp1252']:
+                try:
+                    content_str = content.decode(fallback_encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise HTTPException(400, f"Unable to decode file. Detected encoding: {encoding}")
+        
+        # Parse TXT file with tab separator
+        df = pd.read_csv(io.StringIO(content_str), sep='\t', dtype=str)
+        
+        # Remove empty rows
+        initial_count = len(df)
+        df = df.dropna(subset=['SBLS'])
+        df = df[df['SBLS'].astype(str).str.strip() != '']
+        
+        # Log full replacement operation
+        app_logger.logger.warning(
+            f"FULL BLS DATASET REPLACEMENT initiated by {current_user.get('sub', 'unknown')}",
+            extra={
+                'extra_data': {
+                    'event_type': 'full_dataset_replacement',
+                    'filename': filename,
+                    'encoding': encoding,
+                    'user_id': current_user.get('sub'),
+                    'records_to_process': len(df)
+                }
+            }
         )
         
-        # Parse TXT file with multiple encoding attempts
-        df = None
-        encodings_to_try = [
-            'utf-8-sig',  # UTF-8 with BOM
-            'utf-8',      # Standard UTF-8
-            'utf-16',     # UTF-16 with BOM
-            'utf-16-le',  # UTF-16 Little Endian
-            'utf-16-be',  # UTF-16 Big Endian
-            'iso-8859-1', # Latin-1
-            'windows-1252', # Windows encoding
-            'cp1252'      # Code page 1252
-        ]
-        
-        for encoding in encodings_to_try:
-            try:
-                df = pd.read_table(
-                    BytesIO(content), 
-                    decimal=',', 
-                    sep='\t', 
-                    encoding=encoding, 
-                    header=0,
-                    skipinitialspace=True,
-                    on_bad_lines='skip'  # Skip problematic lines
-                )
-                break
-            except (UnicodeDecodeError, pd.errors.EmptyDataError, UnicodeError) as e:
-                continue
-        
-        if df is None:
-            raise HTTPException(400, "Could not decode file with any supported encoding")
-        
-        # Clean column names (remove BOM if present)
-        df.columns = [col.lstrip('ÿþ\ufeff').strip() for col in df.columns]
-        
-        # Validate required columns are present
-        required_columns = ['SBLS', 'ST']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            available_cols = list(df.columns)
-            raise HTTPException(
-                400, 
-                f"Invalid .txt structure: expected TAB-delimited with {required_columns} headers. "
-                f"Found columns: {available_cols}. Missing: {missing_columns}"
-            )
-        
-        # Remove empty rows - filter out rows where SBLS is NaN or empty
-        initial_count = len(df)
-        df = df.dropna(subset=['SBLS'])  # Remove rows with NaN SBLS
-        df = df[df['SBLS'].astype(str).str.strip() != '']  # Remove rows with empty SBLS
-        
-        # Process data
+        # Process data with full replacement
         result = await bls_service.upload_data(session, df, filename)
         
         duration_ms = (time.time() - start_time) * 1000
@@ -213,117 +204,75 @@ async def upload_bls(
         
         return result
         
-    except HTTPException:
-        raise  # Let HTTPException pass through unchanged
-    except (BLSValidationError, FileUploadError) as e:
-        duration_ms = (time.time() - start_time) * 1000
-        app_logger.log_upload_error(
-            filename=filename,
-            error=str(e),
-            duration_ms=duration_ms
-        )
-        raise HTTPException(400, str(e))
     except Exception as e:
-        duration_ms = (time.time() - start_time) * 1000
-        app_logger.log_upload_error(
-            filename=filename,
-            error=str(e),
-            duration_ms=duration_ms
-        )
-        raise HTTPException(500, f"Error processing file: {str(e)}")
+        app_logger.logger.error(f"BLS dataset replacement failed: {str(e)}")
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 
-
-def detect_csv_delimiter(content: str, filename: str) -> str:
-    """Detect CSV delimiter based on file extension and content"""
-    if filename.endswith('.txt'):
-        # Assume tab-delimited for .txt files
-        return '\t'
-    elif filename.endswith('.csv'):
-        # Use sniffer for .csv files
-        try:
-            sniffer = csv.Sniffer()
-            delimiter = sniffer.sniff(content[:1024]).delimiter
-            return delimiter
-        except:
-            return ';'  # Default fallback
-    return ';'  # Default fallback
-
-@app.post(
-    "/admin/bulk-import-articles",
-    response_model=BulkImportResponse,
-    tags=["Admin"],
-    summary="Bulk import nutrition data for articles"
-)
-async def bulk_import_articles(
-    request: Request,
-    file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(require_admin)  # Require admin role
-):
-    start_time = time.time()
-    client_ip = get_client_ip(request)
-    filename = file.filename or "unknown_file"
-
-    # File type validation - CSV only
-    if not filename.endswith((".csv", ".txt")):
-        raise HTTPException(400, "File must be CSV or TXT format")
-
-    # Size validation
-    content = await file.read()
-    MAX_UPLOAD = 5 * 1024 * 1024  # 5MB for article lists
-    if len(content) > MAX_UPLOAD:
-        raise HTTPException(413, "File too large (max 5MB)")
-
-    try:
-        content_str = content.decode('utf-8')
-        delimiter = detect_csv_delimiter(content_str, filename)
-        
-        # Parse CSV with detected delimiter
-        df = pd.read_csv(io.StringIO(content_str), sep=delimiter)
-        
-        # Validate required columns
-        required_columns = ['article_id', 'bls_number']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise HTTPException(400, f"Missing required columns: {missing_columns}")
-        
-        # Remove empty rows
-        initial_count = len(df)
-        df = df.dropna(subset=['article_id', 'bls_number'])
-        df = df[(df['article_id'].astype(str).str.strip() != '') & 
-                (df['bls_number'].astype(str).str.strip() != '')]
-        
-        app_logger.info(f"Processing {len(df)} articles (filtered from {initial_count})")
-        
-        # Process bulk import
-        result = await bls_service.bulk_import_articles(session, df)
-        
-        duration_ms = (time.time() - start_time) * 1000
-        app_logger.log_upload_success(
-            filename=filename,
-            added=result.successful,
-            updated=0,
-            failed=result.failed,
-            duration_ms=duration_ms
-        )
-        
-        return result
-        
-    except Exception as e:
-        duration_ms = (time.time() - start_time) * 1000
-        app_logger.log_upload_error(
-            filename=filename,
-            error=str(e),
-            duration_ms=duration_ms
-        )
-        raise HTTPException(500, f"Error processing file: {str(e)}")
 
 
 @app.get("/health", tags=["System"])
-async def health():
-    return {"status": "ok"}
-
-
-
-
-
+async def health(session: AsyncSession = Depends(get_session)):
+    start_time = time.time()
+    
+    # Calculate uptime
+    uptime_seconds = int(time.time() - app_start_time)
+    
+    # Get environment
+    environment = os.getenv("ENVIRONMENT", "development")
+    env_display = "prod" if environment == "production" else "dev"
+    
+    health_response = {
+        "status": "ok",
+        "version": "1.4.0",
+        "uptime_s": uptime_seconds,
+        "environment": env_display,
+        "components": {}
+    }
+    
+    try:
+        # Database check
+        db_start = time.time()
+        await session.execute(text("SELECT 1"))
+        db_latency = round((time.time() - db_start) * 1000)
+        
+        health_response["components"]["database"] = {
+            "status": "ok",
+            "dialect": "postgresql", 
+            "latency_ms": db_latency
+        }
+        
+        # Auth check
+        auth_mode = "license_manager" if os.getenv("LICENSEMANAGER_PUBLIC_KEY_URL") else "development"
+        auth_enforced = environment != "development"
+        
+        health_response["components"]["auth"] = {
+            "status": "ok",
+            "mode": auth_mode,
+            "enforced": auth_enforced
+        }
+        
+    except Exception as e:
+        health_response["status"] = "degraded"
+        health_response["components"]["database"] = {
+            "status": "error",
+            "dialect": "postgresql",
+            "error": str(e)
+        }
+        app_logger.logger.error(f"Health check failed: {str(e)}")
+    
+    # Log health check
+    duration_ms = (time.time() - start_time) * 1000
+    app_logger.logger.info(
+        f"Health check - Status: {health_response['status']}, Uptime: {uptime_seconds}s",
+        extra={
+            'extra_data': {
+                'event_type': 'health_check',
+                'status': health_response['status'],
+                'uptime_seconds': uptime_seconds,
+                'environment': env_display,
+                'duration_ms': duration_ms
+            }
+        }
+    )
+    
+    return health_response

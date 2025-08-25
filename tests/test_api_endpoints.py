@@ -12,10 +12,7 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
-    def test_root_endpoint(self, client_with_mock_db):
-        response = client_with_mock_db.get("/")
-        assert response.status_code == 200
-        assert "NutriSync API" in response.json()["message"]
+    # REMOVE: test_root_endpoint method
 
 class TestBLSEndpoints:
     """Test BLS API endpoints"""
