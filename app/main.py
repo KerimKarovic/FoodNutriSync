@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,9 @@ import chardet
 
 app = FastAPI(title="NutriSync", version="1.0.0")
 app_start_time = time.time()
+
+# Templates setup
+templates = Jinja2Templates(directory="app/templates")
 
 # Service instances
 bls_service = BLSService()
@@ -131,15 +136,15 @@ async def upload_bls(
     client_ip = get_client_ip(request)
     filename = file.filename or "unknown_file"
 
-    # File type validation - only TXT
-    if not filename.endswith(".txt"):
-        raise HTTPException(400, "File must be TXT format")
+    # File type validation - TXT and CSV
+    if not (filename.endswith(".txt") or filename.endswith(".csv")):
+        raise HTTPException(400, "File must be TXT or CSV format")
 
     # Size validation
     content = await file.read()
-    MAX_UPLOAD = 10 * 1024 * 1024  # 10MB
+    MAX_UPLOAD = 200 * 1024 * 1024  # 200MB
     if len(content) > MAX_UPLOAD:
-        raise HTTPException(413, "File too large (max 10MB)")
+        raise HTTPException(413, "File too large (max 200MB)")
 
     try:
         # Detect encoding
@@ -168,8 +173,11 @@ async def upload_bls(
             else:
                 raise HTTPException(400, f"Unable to decode file. Detected encoding: {encoding}")
         
-        # Parse TXT file with tab separator
-        df = pd.read_csv(io.StringIO(content_str), sep='\t', dtype=str)
+        # Parse file based on extension
+        if filename.endswith(".csv"):
+            df = pd.read_csv(io.StringIO(content_str), dtype=str)
+        else:  # .txt file
+            df = pd.read_csv(io.StringIO(content_str), sep='\t', dtype=str)
         
         # Remove empty rows
         initial_count = len(df)
@@ -276,3 +284,8 @@ async def health(session: AsyncSession = Depends(get_session)):
     )
     
     return health_response
+
+@app.get("/admin", include_in_schema=False)
+async def admin_dashboard(request: Request):
+    """Serve the admin dashboard HTML page"""
+    return templates.TemplateResponse("admin.html", {"request": request})

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLS Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.2em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        
+        .header .subtitle {
+            opacity: 0.8;
+            font-size: 1.1em;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 5px solid #d35400;
+        }
+        
+        .warning strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+        
+        .upload-section {
+            background: #f8f9fa;
+            border: 2px dashed #dee2e6;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-section:hover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+        
+        .upload-section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+        
+        .upload-section p {
+            color: #6c757d;
+            margin-bottom: 25px;
+            font-size: 1.1em;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            margin: 25px 0;
+        }
+        
+        .file-input {
+            opacity: 0;
+            position: absolute;
+            z-index: -1;
+        }
+        
+        .file-input-label {
+            display: inline-block;
+            padding: 15px 30px;
+            background: #6c757d;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1em;
+        }
+        
+        .file-input-label:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+        
+        .file-selected {
+            margin-top: 15px;
+            padding: 10px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            color: #155724;
+            display: none;
+        }
+        
+        .upload-btn {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+        
+        .upload-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.4);
+        }
+        
+        .upload-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress {
+            width: 100%;
+            height: 8px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #0056b3);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .status {
+            margin-top: 25px;
+            padding: 20px;
+            border-radius: 8px;
+            display: none;
+            font-family: 'Courier New', monospace;
+            white-space: pre-line;
+        }
+        
+        .status.success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border-left: 5px solid #1e7e34;
+        }
+        
+        .status.error {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            border-left: 5px solid #bd2130;
+        }
+        
+        .status.loading {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+            border-left: 5px solid #117a8b;
+        }
+        
+        .api-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .api-info h4 {
+            color: #495057;
+            margin-bottom: 15px;
+        }
+        
+        .api-info code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .api-info ul {
+            margin-left: 20px;
+            color: #6c757d;
+        }
+        
+        .api-info li {
+            margin-bottom: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1> BLS Dataset Management</h1>
+            <div class="subtitle">Bundeslebensmittelschlüssel Data Administration</div>
+        </div>
+        
+        <div class="content">
+            <div class="warning">
+                <strong>⚠️ DESTRUCTIVE OPERATION WARNING</strong>
+                This operation will perform a complete dataset replacement. All existing BLS nutrition data will be permanently deleted and replaced with the uploaded dataset. This action cannot be undone.
+            </div>
+
+            <div class="upload-section">
+                <h3>Dataset Upload</h3>
+                <p>Upload a complete BLS dataset file (TXT or CSV format)</p>
+                
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="fileInput" name="file" accept=".txt,.csv" required class="file-input">
+                        <label for="fileInput" class="file-input-label">
+                            📁 Select Dataset File
+                        </label>
+                        <div id="fileSelected" class="file-selected"></div>
+                    </div>
+                    
+                    <button type="submit" class="upload-btn" id="uploadBtn">
+                        Upload Dataset Replacement
+                    </button>
+                </form>
+
+                <div class="progress" id="progressContainer">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+
+                <div class="status" id="statusMessage"></div>
+            </div>
+            
+            <div class="api-info">
+                <h4>Technical Information</h4>
+                <ul>
+                    <li><strong>Endpoint:</strong> <code>POST /admin/upload-bls</code></li>
+                    <li><strong>Supported Formats:</strong> TXT (tab-separated), CSV (comma-separated)</li>
+                    <li><strong>Max File Size:</strong> 200MB</li>
+                    <li><strong>Required Columns:</strong> <code>SBLS</code> (BLS Number), <code>ST</code> (German Name)</li>
+                    <li><strong>Operation Type:</strong> Full table replacement with transaction safety</li>
+                    <li><strong>Authentication:</strong> Admin role required</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // File input handling
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const fileSelected = document.getElementById('fileSelected');
+            const file = e.target.files[0];
+            
+            if (file) {
+                const fileSize = (file.size / 1024 / 1024).toFixed(2);
+                fileSelected.innerHTML = `
+                    <strong>Selected:</strong> ${file.name}<br>
+                    <strong>Size:</strong> ${fileSize} MB<br>
+                    <strong>Type:</strong> ${file.type || 'Unknown'}
+                `;
+                fileSelected.style.display = 'block';
+            } else {
+                fileSelected.style.display = 'none';
+            }
+        });
+
+        // Form submission
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const statusDiv = document.getElementById('statusMessage');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            
+            if (!fileInput.files[0]) {
+                showStatus('❌ ERROR: No file selected\n\nPlease select a TXT or CSV file before proceeding.', 'error');
+                return;
+            }
+
+            // Validate file type
+            const fileName = fileInput.files[0].name.toLowerCase();
+            if (!(fileName.endsWith('.txt') || fileName.endsWith('.csv'))) {
+                showStatus('❌ INVALID FILE TYPE\n\nOnly TXT and CSV files are supported.\nSelected: ' + fileName, 'error');
+                return;
+            }
+
+            // Show loading state
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = 'Processing Dataset...';
+            showStatus(' UPLOAD IN PROGRESS\n\nUploading and processing dataset...\nThis may take several minutes for large files.', 'loading');
+            progressContainer.style.display = 'block';
+            
+            // Simulate progress
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 90) progress = 90;
+                progressBar.style.width = progress + '%';
+            }, 500);
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch('/admin/upload-bls', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    showStatus(
+                        `✅ DATASET REPLACEMENT SUCCESSFUL\n\n` +
+                        ` OPERATION SUMMARY:\n` +
+                        `• Records Added: ${result.added.toLocaleString()}\n` +
+                        `• Records Failed: ${result.failed.toLocaleString()}\n` +
+                        `• Processing Time: ${duration}s\n\n` +
+                        (result.errors.length > 0 ? 
+                            `⚠️ VALIDATION ERRORS:\n${result.errors.slice(0, 5).join('\n')}` +
+                            (result.errors.length > 5 ? `\n... and ${result.errors.length - 5} more errors` : '') 
+                            : ' No validation errors detected'),
+                        'success'
+                    );
+                } else {
+                    const error = await response.json();
+                    showStatus(
+                        `❌ UPLOAD FAILED\n\n` +
+                        ` ERROR DETAILS:\n${error.detail}\n\n` +
+                        ` Duration: ${duration}s`,
+                        'error'
+                    );
+                }
+            } catch (error) {
+                clearInterval(progressInterval);
+                showStatus(
+                    `❌ NETWORK ERROR\n\n` +
+                    ` ERROR DETAILS:\n${error.message}\n\n` +
+                    `💡 TROUBLESHOOTING:\n` +
+                    `• Check network connection\n` +
+                    `• Verify server is running\n` +
+                    `• Check file size (max 200MB)`,
+                    'error'
+                );
+            } finally {
+                // Reset UI
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = 'Upload Dataset Replacement';
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 3000);
+            }
+        });
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+            
+            // Auto-scroll to status
+            statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+
+
