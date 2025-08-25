@@ -120,13 +120,13 @@ async def get_bls_by_number(
         raise HTTPException(status_code=500, detail=f"Lookup failed: {str(e)}")
 
 
-@app.post(
-    "/admin/upload-bls",
+@app.put(
+    "/admin/bls-dataset",
     response_model=BLSUploadResponse,
     tags=["Admin"],
-    summary="Upload BLS Dataset (Full Replacement)"
+    summary="Replace BLS Dataset (Full Replacement)"
 )
-async def upload_bls(
+async def replace_bls_dataset(
     request: Request,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),

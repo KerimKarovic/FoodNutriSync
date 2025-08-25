@@ -280,11 +280,11 @@
             <div class="api-info">
                 <h4>Technical Information</h4>
                 <ul>
-                    <li><strong>Endpoint:</strong> <code>POST /admin/upload-bls</code></li>
+                    <li><strong>Endpoint:</strong> <code>PUT /admin/bls-dataset</code></li>
                     <li><strong>Supported Formats:</strong> TXT (tab-separated), CSV (comma-separated)</li>
                     <li><strong>Max File Size:</strong> 200MB</li>
                     <li><strong>Required Columns:</strong> <code>SBLS</code> (BLS Number), <code>ST</code> (German Name)</li>
-                    <li><strong>Operation Type:</strong> Full table replacement with transaction safety</li>
+                    <li><strong>Operation Type:</strong> Full dataset replacement (idempotent)</li>
                     <li><strong>Authentication:</strong> Admin role required</li>
                 </ul>
             </div>
@@ -351,8 +351,8 @@
 
             try {
                 const startTime = Date.now();
-                const response = await fetch('/admin/upload-bls', {
-                    method: 'POST',
+                const response = await fetch('/admin/bls-dataset', {
+                    method: 'PUT',
                     body: formData
                 });
 
@@ -418,6 +418,8 @@
     </script>
 </body>
 </html>
+
+
 
 
 
