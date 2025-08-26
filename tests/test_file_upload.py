@@ -14,9 +14,10 @@ class TestFileUpload:
     
     def test_upload_invalid_file_type(self, client_with_mock_db):
         """Test upload with invalid file type"""
-        files = {"file": ("test.pdf", "invalid content", "application/pdf")}
-        response = client_with_mock_db.post("/admin/upload-bls", files=files)
+        files = {"file": ("test.csv", "invalid content", "text/csv")}  # CSV should now fail
+        response = client_with_mock_db.put("/admin/bls-dataset", files=files)
         assert response.status_code == 400
+        assert "TXT format" in response.json()["detail"]
     
     @patch('app.main.bls_service.upload_data')
     def test_upload_csv_success(self, mock_upload, client_with_mock_db):

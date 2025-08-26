@@ -254,13 +254,13 @@
 
             <div class="upload-section">
                 <h3>Dataset Upload</h3>
-                <p>Upload a complete BLS dataset file (TXT or CSV format)</p>
+                <p>Upload a complete BLS dataset file (TXT format only)</p>
                 
                 <form id="uploadForm" enctype="multipart/form-data">
                     <div class="file-input-wrapper">
-                        <input type="file" id="fileInput" name="file" accept=".txt,.csv" required class="file-input">
+                        <input type="file" id="fileInput" name="file" accept=".txt" required class="file-input">
                         <label for="fileInput" class="file-input-label">
-                            📁 Select Dataset File
+                            📁 Select Dataset File (.txt)
                         </label>
                         <div id="fileSelected" class="file-selected"></div>
                     </div>
@@ -281,7 +281,7 @@
                 <h4>Technical Information</h4>
                 <ul>
                     <li><strong>Endpoint:</strong> <code>PUT /admin/bls-dataset</code></li>
-                    <li><strong>Supported Formats:</strong> TXT (tab-separated), CSV (comma-separated)</li>
+                    <li><strong>Supported Formats:</strong> TXT (tab-separated) only</li>
                     <li><strong>Max File Size:</strong> 200MB</li>
                     <li><strong>Required Columns:</strong> <code>SBLS</code> (BLS Number), <code>ST</code> (German Name)</li>
                     <li><strong>Operation Type:</strong> Full dataset replacement (idempotent)</li>
@@ -327,8 +327,8 @@
 
             // Validate file type
             const fileName = fileInput.files[0].name.toLowerCase();
-            if (!(fileName.endsWith('.txt') || fileName.endsWith('.csv'))) {
-                showStatus('❌ INVALID FILE TYPE\n\nOnly TXT and CSV files are supported.\nSelected: ' + fileName, 'error');
+            if (!fileName.endsWith('.txt')) {
+                showStatus('❌ INVALID FILE TYPE\n\nOnly TXT files are supported.\nSelected: ' + fileName, 'error');
                 return;
             }
 
@@ -418,4 +418,7 @@
     </script>
 </body>
 </html>
+
+
+
 

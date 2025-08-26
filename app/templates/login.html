@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLS Admin Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .login-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .login-header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .login-header h1 {
+            font-size: 1.8em;
+            margin-bottom: 8px;
+            font-weight: 300;
+        }
+        
+        .login-header .subtitle {
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+        
+        .login-form {
+            padding: 40px;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-weight: 500;
+            font-size: 1.2em;
+            text-align: center;
+        }
+        
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+            line-height: 1.4;
+        }
+        
+        .login-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 15px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .login-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,123,255,0.4);
+        }
+        
+        .login-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .error-message {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 5px solid #bd2130;
+            display: none;
+        }
+        
+        .loading-message {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border-left: 5px solid #117a8b;
+            display: none;
+        }
+        
+        .info-section {
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .info-section .icon {
+            font-size: 1.2em;
+            margin-bottom: 8px;
+        }
+        
+        @media (max-width: 480px) {
+            .login-form {
+                padding: 30px 20px;
+            }
+            
+            .login-header {
+                padding: 25px 20px;
+            }
+            
+            .login-header h1 {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>🔐 BLS Admin Login</h1>
+            <div class="subtitle">Bundeslebensmittelschlüssel Administration</div>
+        </div>
+        
+        <div class="login-form">
+            <div id="errorMessage" class="error-message"></div>
+            <div id="loadingMessage" class="loading-message"></div>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="jwtToken">JWT Token</label>
+                    <textarea id="jwtToken" name="jwtToken" required 
+                              placeholder="Paste your JWT token here..."
+                              rows="3"></textarea>
+                </div>
+                
+                <button type="submit" class="login-btn" id="loginBtn">
+                    Validate & Sign In
+                </button>
+            </form>
+        </div>
+        
+        <div class="info-section">
+            <div class="icon">ℹ️</div>
+            <div>
+                <strong>Admin JWT Token Required</strong><br>
+                Get your token from the License Manager system<br>
+             
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const jwtToken = document.getElementById('jwtToken').value.trim();
+            const loginBtn = document.getElementById('loginBtn');
+            const errorDiv = document.getElementById('errorMessage');
+            const loadingDiv = document.getElementById('loadingMessage');
+            
+            // Clear previous messages
+            errorDiv.style.display = 'none';
+            loadingDiv.style.display = 'none';
+            
+            // Validate input
+            if (!jwtToken) {
+                showError('Please enter your JWT token');
+                return;
+            }
+            
+            // Basic JWT format validation
+            if (!jwtToken.includes('.') || jwtToken.split('.').length !== 3) {
+                showError('Invalid JWT token format. Token should have 3 parts separated by dots.');
+                return;
+            }
+            
+            // Show loading state
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = 'Validating Token...';
+            showLoading('🔄 Validating JWT token...');
+            
+            try {
+                // Store the token and try to access admin page
+                localStorage.setItem('jwt_token', jwtToken);
+                
+                // Test the token by making a request to admin endpoint
+                const response = await fetch('/admin', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    // Token is valid, show success and redirect
+                    showLoading('✅ Token validated! Redirecting to admin dashboard...');
+                    
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 1500);
+                    
+                } else if (response.status === 401 || response.status === 403) {
+                    // Invalid token or insufficient permissions
+                    localStorage.removeItem('jwt_token');
+                    showError('❌ Invalid token or insufficient permissions. Admin role required.');
+                } else {
+                    // Other error
+                    localStorage.removeItem('jwt_token');
+                    showError('❌ Token validation failed. Please check your token.');
+                }
+                
+            } catch (error) {
+                localStorage.removeItem('jwt_token');
+                showError(`❌ Connection error: ${error.message}`);
+            } finally {
+                // Reset button state
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = 'Validate & Sign In';
+                loadingDiv.style.display = 'none';
+            }
+        });
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function showLoading(message) {
+            const loadingDiv = document.getElementById('loadingMessage');
+            loadingDiv.textContent = message;
+            loadingDiv.style.display = 'block';
+        }
+        
+        // Auto-focus JWT token field
+        document.getElementById('jwtToken').focus();
+        
+        // Handle Enter key in JWT token field (Ctrl+Enter to submit)
+        document.getElementById('jwtToken').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+

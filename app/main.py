@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,7 +64,7 @@ async def search_bls(
     name: str = Query(..., min_length=1, description="German food name to search (min 1 char)"),
     limit: int = Query(50, ge=1, le=100, description="Maximum results to return"),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_admin)  # Changed from get_current_user
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -91,7 +92,7 @@ async def get_bls_by_number(
     request: Request,
     bls_number: str,
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(get_current_user)  # Add authentication
+    current_user: dict = Depends(require_admin)  # Changed from get_current_user
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -134,9 +135,9 @@ async def replace_bls_dataset(
     client_ip = get_client_ip(request)
     filename = file.filename or "unknown_file"
 
-    # File type validation - TXT and CSV
-    if not (filename.endswith(".txt") or filename.endswith(".csv")):
-        raise HTTPException(400, "File must be TXT or CSV format")
+    # File type validation - TXT ONLY
+    if not filename.endswith(".txt"):
+        raise HTTPException(400, "File must be TXT format (tab-separated)")
 
     # Size validation
     content = await file.read()
@@ -171,11 +172,8 @@ async def replace_bls_dataset(
             else:
                 raise HTTPException(400, f"Unable to decode file. Detected encoding: {encoding}")
         
-        # Parse file based on extension
-        if filename.endswith(".csv"):
-            df = pd.read_csv(io.StringIO(content_str), dtype=str)
-        else:  # .txt file
-            df = pd.read_csv(io.StringIO(content_str), sep='\t', dtype=str)
+        # Parse as tab-separated file
+        df = pd.read_csv(io.StringIO(content_str), sep='\t', dtype=str)
         
         # Remove empty rows
         initial_count = len(df)
@@ -283,7 +281,45 @@ async def health(session: AsyncSession = Depends(get_session)):
     
     return health_response
 
-@app.get("/admin", include_in_schema=False, dependencies=[Depends(require_admin)])
+@app.get("/admin", include_in_schema=False)
 async def admin_dashboard(request: Request):
-    """Serve the admin dashboard HTML page"""
-    return templates.TemplateResponse("admin.html", {"request": request})
+    """Serve the admin dashboard HTML page or redirect to login"""
+    # Check if we're in development mode
+    if os.getenv("ENVIRONMENT") == "development":
+        return templates.TemplateResponse("admin.html", {"request": request})
+    
+    # In production, check for JWT token
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        # No auth header, redirect to login
+        return RedirectResponse(url="/login", status_code=302)
+    
+    try:
+        # Try to validate the token
+        from fastapi.security import HTTPAuthorizationCredentials
+        from app.auth import jwt_auth
+        
+        # Extract token from "Bearer <token>"
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            payload = await jwt_auth.validate_token(token)
+            user_roles = payload.get("roles", [])
+            
+            # Check admin role
+            if "Admin" not in user_roles:
+                return RedirectResponse(url="/login", status_code=302)
+            
+            # User is authenticated and has admin role
+            return templates.TemplateResponse("admin.html", {"request": request})
+        else:
+            # Invalid auth header format
+            return RedirectResponse(url="/login", status_code=302)
+            
+    except Exception:
+        # Token validation failed, redirect to login
+        return RedirectResponse(url="/login", status_code=302)
+
+@app.get("/login", include_in_schema=False)
+async def login_page(request: Request):
+    """Serve the login page"""
+    return templates.TemplateResponse("login.html", {"request": request})
