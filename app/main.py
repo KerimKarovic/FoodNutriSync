@@ -1,26 +1,29 @@
 from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import AsyncGenerator
 import time
-import csv
 import os
 import io
-from io import BytesIO
 from datetime import datetime
-from .database import SessionLocal
+from .database import SessionLocal, get_session
 from .services.bls_service import BLSService
-from .schemas import BLSSearchResponse, BLSUploadResponse  # Remove BulkImportResponse
+from .schemas import BLSSearchResponse, BLSUploadResponse
 from .exceptions import BLSNotFoundError, BLSValidationError, FileUploadError
-from .logging_config import app_logger
+from .logging_config import setup_logging, app_logger
 from .auth import get_current_user, require_admin
 import chardet
 
-app = FastAPI(title="NutriSync", version="1.0.0")
+APP_VERSION = "1.4.0"
+app = FastAPI(title="NutriSync", version=APP_VERSION)
+
+@app.on_event("startup")
+async def startup_logging():
+    setup_logging()
+
 app_start_time = time.time()
 
 # Templates setup
@@ -42,11 +45,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    async with SessionLocal() as session:
-        yield session
-
-
 def get_client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for")
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
@@ -62,10 +60,10 @@ def get_client_ip(request: Request) -> str:
 )
 async def search_bls(
     request: Request,
-    name: str = Query("", description="German food name to search"),
+    name: str = Query(..., min_length=1, description="German food name to search (min 1 char)"),
     limit: int = Query(50, ge=1, le=100, description="Maximum results to return"),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(get_current_user)  # Add authentication
+    current_user: dict = Depends(get_current_user)
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -186,13 +184,13 @@ async def replace_bls_dataset(
         
         # Log full replacement operation
         app_logger.logger.warning(
-            f"FULL BLS DATASET REPLACEMENT initiated by {current_user.get('sub', 'unknown')}",
+            f"FULL BLS DATASET REPLACEMENT initiated by {current_user.get('user_id', 'unknown')}",
             extra={
                 'extra_data': {
                     'event_type': 'full_dataset_replacement',
                     'filename': filename,
                     'encoding': encoding,
-                    'user_id': current_user.get('sub'),
+                    'user_id': current_user.get('user_id'),
                     'records_to_process': len(df)
                 }
             }
@@ -231,7 +229,7 @@ async def health(session: AsyncSession = Depends(get_session)):
     
     health_response = {
         "status": "ok",
-        "version": "1.4.0",
+        "version": APP_VERSION,
         "uptime_s": uptime_seconds,
         "environment": env_display,
         "components": {}
@@ -285,7 +283,7 @@ async def health(session: AsyncSession = Depends(get_session)):
     
     return health_response
 
-@app.get("/admin", include_in_schema=False)
+@app.get("/admin", include_in_schema=False, dependencies=[Depends(require_admin)])
 async def admin_dashboard(request: Request):
     """Serve the admin dashboard HTML page"""
     return templates.TemplateResponse("admin.html", {"request": request})

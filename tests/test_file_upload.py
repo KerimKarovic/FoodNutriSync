@@ -7,9 +7,9 @@ from app.schemas import BLSUploadResponse
 class TestFileUpload:
     """Test file upload functionality"""
     
-    def test_upload_no_file(self, client_with_mock_db):  # Changed from client
+    def test_upload_no_file(self, client_with_mock_db):
         """Test upload without file"""
-        response = client_with_mock_db.post("/admin/upload-bls")
+        response = client_with_mock_db.put("/admin/bls-dataset")
         assert response.status_code == 422
     
     def test_upload_invalid_file_type(self, client_with_mock_db):
@@ -30,7 +30,7 @@ class TestFileUpload:
         
         csv_content = "SBLS\tST\tENERC\nB123456\tTest Food\t100"
         files = {"file": ("test.txt", csv_content, "text/plain")}
-        response = client_with_mock_db.post("/admin/upload-bls", files=files)
+        response = client_with_mock_db.put("/admin/bls-dataset", files=files)
         assert response.status_code == 200
 
     @patch('app.main.bls_service.upload_data')

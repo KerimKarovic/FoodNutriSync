@@ -19,12 +19,19 @@ class TestSearchUX:
     ])
     @patch('app.services.bls_service.BLSService.search_by_name')
     def test_search_edge_cases(self, mock_search, search_term, should_work, client_with_mock_db):
-        """Test search user experience edge cases"""
-        mock_response = BLSSearchResponse(results=[], count=0)
-        mock_search.return_value = mock_response
+        """Test various search edge cases"""
+        mock_search.return_value = BLSSearchResponse(results=[], count=0)
         
         response = client_with_mock_db.get(f"/bls/search?name={search_term}")
+        
+        if search_term == "":
+            assert response.status_code == 422
+            return
+            
         assert response.status_code == 200
+        data = response.json()
+        assert "results" in data
+        assert "count" in data
     
     @pytest.mark.parametrize("limit", [1, 50, 100, 101, -1, 0])
     @patch('app.services.bls_service.BLSService.search_by_name')
@@ -33,7 +40,7 @@ class TestSearchUX:
         mock_response = BLSSearchResponse(results=[], count=0)
         mock_search.return_value = mock_response
         
-        response = client_with_mock_db.get(f"/bls/search?limit={limit}")
+        response = client_with_mock_db.get(f"/bls/search?name=test&limit={limit}")
         if limit > 100 or limit <= 0:
             assert response.status_code == 422
         else:

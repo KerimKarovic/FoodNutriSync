@@ -16,8 +16,17 @@ def client_with_mock_db():
     from app.database import get_session
     from app.auth import get_current_user, require_admin
     
+    # Async-friendly session mock
+    class FakeAsyncSession:
+        async def execute(self, stmt):
+            # Return sync result object (like real SQLAlchemy)
+            result = MagicMock()
+            result.scalar.return_value = 1
+            result.scalars.return_value.all.return_value = []
+            return result
+    
     def override_get_session():
-        return Mock()
+        return FakeAsyncSession()
     
     def override_get_current_user():
         return {
@@ -42,7 +51,3 @@ def client_with_mock_db():
     
     # Cleanup
     app.dependency_overrides.clear()
-
-# REMOVE: Any unused fixtures like async_session, mock_bls_service, etc.
-
-

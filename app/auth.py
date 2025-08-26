@@ -14,7 +14,8 @@ class JWTAuth:
         self.public_key_url = os.getenv("LICENSEMANAGER_PUBLIC_KEY_URL")
         self.issuer = os.getenv("LICENSEMANAGER_ISSUER")
         self.algorithm = os.getenv("JWT_ALGORITHM", "RS256")
-        self.allowed_roles = os.getenv("ALLOWED_ROLES", "").split(",") if os.getenv("ALLOWED_ROLES") else []
+        self.allowed_roles = [r.strip() for r in os.getenv("ALLOWED_ROLES", "").split(",") if r.strip()]
+        self.audience = os.getenv("LICENSEMANAGER_AUDIENCE")  # optional
         self._public_key = None
         self._key_last_fetched = None
     
@@ -70,12 +71,11 @@ class JWTAuth:
                 detail="Invalid token"
             )
     
-    def check_role_permission(self, user_roles: List[str], required_roles: Optional[List[str]] = None) -> bool:
-        """Check if user has required role"""
-        if required_roles is None:
-            required_roles = self.allowed_roles
-        
-        return any(role in required_roles for role in user_roles)
+    def check_role_permission(self, user_roles: List[str]) -> bool:
+        """Check if user has required role permissions"""
+        if not self.allowed_roles:  # Empty list = allow any authenticated user
+            return True
+        return any(role in self.allowed_roles for role in user_roles)
 
 jwt_auth = JWTAuth()
 
