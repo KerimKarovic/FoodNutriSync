@@ -3,7 +3,7 @@ import logging
 import sys
 import os
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 import json
 
 class StructuredFormatter(logging.Formatter):
@@ -90,18 +90,20 @@ class AppLogger:
         """Standard info logging"""
         self.logger.info(message)
     
-    def log_upload_start(self, filename: str, file_size: int, user_ip: str | None = None):
+    def log_upload_start(self, filename: str, file_size: int, user_ip: Optional[str] = None):
         """Log file upload initiation"""
+        extra_data = {
+            'event_type': 'upload_start',
+            'filename': filename,
+            'file_size_bytes': file_size
+        }
+        
+        if user_ip:
+            extra_data['user_ip'] = user_ip
+        
         self.logger.info(
             "File upload started",
-            extra={
-                'extra_data': {
-                    'event_type': 'upload_start',
-                    'filename': filename,
-                    'file_size_bytes': file_size,
-                    'user_ip': user_ip
-                }
-            }
+            extra={'extra_data': extra_data}
         )
     
     def log_upload_success(self, filename: str, added: int, updated: int, failed: int, duration_ms: float):
@@ -135,20 +137,31 @@ class AppLogger:
             }
         )
     
-    def log_api_query(self, endpoint: str, params: Dict[str, Any], result_count: int, duration_ms: float, user_ip: str | None = None):
-        """Log API query"""
+    def log_api_query(self, endpoint: str, params: dict, result_count: int, 
+                    duration_ms: float, user_ip: str, user_id: Optional[str] = None, 
+                    user_roles: Optional[List[str]] = None):
+        """Log API query with enhanced user context"""
+        # Build extra data with proper null handling
+        extra_data = {
+            'event_type': 'api_query',
+            'endpoint': endpoint,
+            'params': params,
+            'result_count': result_count,
+            'duration_ms': round(duration_ms, 1),
+            'user_ip': user_ip,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Only add user fields if they have values
+        if user_id:
+            extra_data['user_id'] = user_id
+        
+        if user_roles:
+            extra_data['user_roles'] = user_roles
+        
         self.logger.info(
-            f"API query: {endpoint}",
-            extra={
-                'extra_data': {
-                    'event_type': 'api_query',
-                    'endpoint': endpoint,
-                    'parameters': params,
-                    'result_count': result_count,
-                    'duration_ms': duration_ms,
-                    'user_ip': user_ip
-                }
-            }
+            f"API Query: {endpoint} - {result_count} results in {duration_ms:.1f}ms",
+            extra={'extra_data': extra_data}
         )
     
     def log_database_operation(self, operation: str, table: str, affected_rows: int, duration_ms: float):

@@ -415,9 +415,58 @@
             // Auto-scroll to status
             statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+
+        // Add role-based UI functionality
+        async function loadUserPermissions() {
+            try {
+                const response = await fetch('/auth/roles', {
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    updateUIBasedOnRoles(data);
+                }
+            } catch (error) {
+                console.error('Failed to load user permissions:', error);
+            }
+        }
+
+        function updateUIBasedOnRoles(userData) {
+            const { permissions, roles } = userData;
+            
+            // Show/hide upload section based on admin role
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) {
+                uploadSection.style.display = permissions.can_upload_data ? 'block' : 'none';
+            }
+            
+            // Update user info display
+            const userInfo = document.getElementById('user-info');
+            if (userInfo) {
+                userInfo.innerHTML = `
+                    <div class="user-badge">
+                        👤 ${userData.user_id} | 🏷️ ${roles.join(', ')}
+                    </div>
+                `;
+            }
+            
+            // Add role-specific warnings
+            if (!permissions.can_upload_data) {
+                const warning = document.createElement('div');
+                warning.className = 'role-warning';
+                warning.innerHTML = '⚠️ You have read-only access. Contact admin for upload permissions.';
+                document.querySelector('.admin-header').appendChild(warning);
+            }
+        }
+
+        // Load permissions on page load
+        document.addEventListener('DOMContentLoaded', loadUserPermissions);
     </script>
 </body>
 </html>
+
+
 
 
 

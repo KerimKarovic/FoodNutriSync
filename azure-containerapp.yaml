@@ -1,0 +1,56 @@
+# Azure Container App configuration template
+apiVersion: 2023-05-01
+location: westeurope
+name: nutrisync-api
+properties:
+  environmentId: /subscriptions/{subscription-id}/resourceGroups/nutrisync-rg/providers/Microsoft.App/managedEnvironments/nutrisync-env
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8000
+      allowInsecure: false
+      traffic:
+        - weight: 100
+          latestRevision: true
+    secrets:
+      - name: database-url
+        value: "postgresql+asyncpg://nutrisync:NutriSync2024!@nutrisync-db-server.postgres.database.azure.com:5432/nutrisync_db"
+      - name: alembic-database-url
+        value: "postgresql+psycopg2://nutrisync:NutriSync2024!@nutrisync-db-server.postgres.database.azure.com:5432/nutrisync_db"
+  template:
+    containers:
+      - image: your-registry.azurecr.io/nutrisync-api:latest
+        name: nutrisync-api
+        env:
+          - name: DATABASE_URL
+            secretRef: database-url
+          - name: ALEMBIC_DATABASE_URL
+            secretRef: alembic-database-url
+          - name: ENVIRONMENT
+            value: "production"
+          - name: LOG_LEVEL
+            value: "INFO"
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        probes:
+          - type: Liveness
+            httpGet:
+              path: "/health/live"
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          - type: Readiness
+            httpGet:
+              path: "/health/ready"
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "10"

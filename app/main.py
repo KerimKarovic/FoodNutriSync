@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, Path, Query, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +15,13 @@ from .services.bls_service import BLSService
 from .schemas import BLSSearchResponse, BLSUploadResponse
 from .exceptions import BLSNotFoundError, BLSValidationError, FileUploadError
 from .logging_config import setup_logging, app_logger
-from .auth import get_current_user, require_admin, jwt_auth
+from .auth import get_current_user, require_admin, require_bls_reader, jwt_auth
 import chardet
+from . import auth
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+import secrets
+from fastapi.exceptions import RequestValidationError
 
 APP_VERSION = "1.4.0"
 app = FastAPI(title="NutriSync", version=APP_VERSION)
@@ -56,23 +61,64 @@ templates = Jinja2Templates(directory="app/templates")
 # Service instances
 bls_service = BLSService()
 
-# Add CORS middleware
+# Security middleware stack
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Trusted hosts for production
+if os.getenv("ENVIRONMENT") == "production":
+    allowed_hosts = [
+        "your-api-domain.com",
+        "*.company.com",
+        "127.0.0.1",  # Health checks
+        "localhost"   # Health checks
+    ]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+# Production CORS setup
+if os.getenv("ENVIRONMENT") == "production":
+    allowed_origins = [
+        "https://your-frontend-domain.com",
+        "https://admin-portal.company.com"
+    ]
+else:
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000"
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://company-frontend.com",  # Real frontend domain
-        "https://admin-portal.company.com",  # Admin interface
-        "http://localhost:3000",  # Keep for local development
-    ],
-    allow_credentials=True,  # Allow JWT cookies/headers
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Request-ID"]
 )
+
+# Security headers middleware (simplified)
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Add essential security headers"""
+    response = await call_next(request)
+    
+    # Generate request ID for tracing
+    request_id = secrets.token_hex(8)
+    response.headers["X-Request-ID"] = request_id
+    
+    # Essential security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # HSTS for production HTTPS
+    if os.getenv("ENVIRONMENT") == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    
+    return response
 
 def get_client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for")
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
-
 
 
 @app.get(
@@ -84,10 +130,10 @@ def get_client_ip(request: Request) -> str:
 )
 async def search_bls(
     request: Request,
-    name: str = Query(..., min_length=1, description="German food name to search (min 1 char)"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum results to return"),
+    name: str = Query(..., min_length=1, max_length=100, description="German food name"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum results"),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(require_admin)  # Changed from get_current_user
+    current_user: dict = Depends(require_bls_reader)
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -101,7 +147,9 @@ async def search_bls(
             params={'name': name, 'limit': limit},
             result_count=len(result.results),
             duration_ms=duration_ms,
-            user_ip=client_ip
+            user_ip=client_ip,
+            user_id=current_user.get("user_id"),  # Add user tracking
+            user_roles=current_user.get("roles", [])
         )
         
         return result
@@ -113,9 +161,9 @@ async def search_bls(
 @app.get("/bls/{bls_number}", tags=["BLS"])
 async def get_bls_by_number(
     request: Request,
-    bls_number: str,
+    bls_number: str = Path(..., regex=r"^[A-Z]\d{6}$", description="BLS number (e.g., B123456)"),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(require_admin)  # Changed from get_current_user
+    current_user: dict = Depends(require_bls_reader)
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -129,7 +177,9 @@ async def get_bls_by_number(
             params={'bls_number': bls_number},
             result_count=1,
             duration_ms=duration_ms,
-            user_ip=client_ip
+            user_ip=client_ip,
+            user_id=current_user.get("user_id"),  # Add user tracking
+            user_roles=current_user.get("roles", [])
         )
         
         return result
@@ -152,7 +202,7 @@ async def replace_bls_dataset(
     request: Request,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_admin)  # Keep admin requirement
 ):
     start_time = time.time()
     client_ip = get_client_ip(request)
@@ -239,62 +289,58 @@ async def replace_bls_dataset(
 
 @app.get("/health", tags=["System"])
 async def health(session: AsyncSession = Depends(get_session)):
+    """Comprehensive health check"""
     start_time = time.time()
-    
-    # Calculate uptime
     uptime_seconds = int(time.time() - app_start_time)
-    
-    # Get environment
-    environment = os.getenv("ENVIRONMENT", "development")
-    env_display = "prod" if environment == "production" else "dev"
     
     health_response = {
         "status": "ok",
         "version": APP_VERSION,
         "uptime_s": uptime_seconds,
-        "environment": env_display,
-        "components": {}
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     }
     
     try:
-        # Database check only
+        # Database check
         db_start = time.time()
-        await session.execute(text("SELECT 1"))
+        result = await session.execute(text("SELECT COUNT(*) FROM bls_data LIMIT 1"))
+        record_count = result.scalar()
         db_latency = round((time.time() - db_start) * 1000)
         
-        health_response["components"]["database"] = {
+        health_response["database"] = {
             "status": "ok",
-            "dialect": "postgresql", 
-            "latency_ms": db_latency
+            "latency_ms": db_latency,
+            "record_count": record_count
         }
         
-        # Remove the entire auth section - we decided against exposing this
+        # JWT Auth check
+        auth_health = jwt_auth.get_health_status()
+        health_response["authentication"] = {
+            "status": "ok" if auth_health["keys_loaded"] else "degraded",
+            "key_type": auth_health["key_type"]
+        }
         
     except Exception as e:
-        health_response["status"] = "degraded"
-        health_response["components"]["database"] = {
-            "status": "error",
-            "dialect": "postgresql",
-            "error": str(e)
-        }
+        health_response["status"] = "error"
+        health_response["error"] = str(e)
         app_logger.logger.error(f"Health check failed: {str(e)}")
     
-    # Log health check
-    duration_ms = (time.time() - start_time) * 1000
-    app_logger.logger.info(
-        f"Health check - Status: {health_response['status']}, Uptime: {uptime_seconds}s",
-        extra={
-            'extra_data': {
-                'event_type': 'health_check',
-                'status': health_response['status'],
-                'uptime_seconds': uptime_seconds,
-                'environment': env_display,
-                'duration_ms': duration_ms
-            }
-        }
-    )
-    
     return health_response
+
+@app.get("/health/ready", tags=["System"])
+async def readiness_check(session: AsyncSession = Depends(get_session)):
+    """Simple readiness probe"""
+    try:
+        await session.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:
+        raise HTTPException(503, f"Not ready: {str(e)}")
+
+@app.get("/health/live", tags=["System"])
+async def liveness_check():
+    """Simple liveness probe"""
+    return {"status": "alive"}
 
 @app.get("/admin", include_in_schema=False)
 async def admin_dashboard(request: Request):
@@ -338,3 +384,36 @@ async def admin_dashboard(request: Request):
 async def login_page(request: Request):
     """Serve the login page"""
     return templates.TemplateResponse("login.html", {"request": request})
+
+app.include_router(auth.router, prefix="", tags=["Authentication"])
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors gracefully"""
+    app_logger.logger.warning(f"Validation error on {request.url.path}: {exc.errors()}")
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "Invalid request data",
+            "details": exc.errors(),
+            "request_id": request.headers.get("X-Request-ID")
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected errors"""
+    app_logger.logger.error(f"Unhandled error on {request.url.path}: {str(exc)}")
+    
+    # Hide internal errors in production
+    detail = "Internal server error" if os.getenv("ENVIRONMENT") == "production" else str(exc)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": detail,
+            "request_id": request.headers.get("X-Request-ID")
+        }
+    )
