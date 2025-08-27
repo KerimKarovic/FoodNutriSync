@@ -13,9 +13,11 @@ from .database import get_session
 from .services.bls_service import BLSService
 from .schemas import BLSSearchResponse, BLSUploadResponse
 from .exceptions import BLSNotFoundError, BLSValidationError
-from .auth import get_current_user, require_admin, require_bls_reader, get_client_ip, jwt_auth
+from .auth import get_current_user, require_admin, require_bls_reader, get_client_ip, jwt_auth, extract_token_from_request
 from .logging_config import setup_logging
 import chardet
+from fastapi.security import HTTPBearer
+from fastapi.openapi.utils import get_openapi
 
 from app import auth
 
@@ -23,7 +25,16 @@ from app import auth
 app_logger = setup_logging()
 
 APP_VERSION = "1.4.0"
-app = FastAPI(title="FoodNutriSync", version=APP_VERSION)
+app = FastAPI(
+    title="FoodNutriSync", 
+    version=APP_VERSION,
+    openapi_tags=[
+        {"name": "Authentication", "description": "JWT authentication endpoints"},
+        {"name": "BLS", "description": "BLS nutrition data endpoints"},
+        {"name": "Admin", "description": "Admin data management endpoints"},
+        {"name": "System", "description": "Health and system endpoints"}
+    ]
+)
 
 app_start_time = time.time()
 templates = Jinja2Templates(directory="app/templates")
@@ -221,27 +232,15 @@ async def liveness_check():
     return {"status": "alive"}
 
 @app.get("/admin", include_in_schema=False)
-async def admin_dashboard(request: Request):
+async def admin_dashboard(
+    request: Request, 
+    current_user: dict = Depends(require_admin)
+):
     """Admin dashboard"""
-    if os.getenv("ENVIRONMENT") == "development":
-        return templates.TemplateResponse("admin.html", {"request": request})
-    
-    # Check auth in production
-    auth_header = request.headers.get("authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return RedirectResponse(url="/login", status_code=302)
-    
-    try:
-        token = auth_header[7:]
-        from .auth import jwt_auth
-        payload = await jwt_auth.validate_token(token)
-        
-        if "Admin" not in payload.get("roles", []):
-            return RedirectResponse(url="/login", status_code=302)
-        
-        return templates.TemplateResponse("admin.html", {"request": request})
-    except:
-        return RedirectResponse(url="/login", status_code=302)
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "user": current_user
+    })
 
 @app.get("/login", include_in_schema=False)
 async def login_page(request: Request):
@@ -261,3 +260,24 @@ async def general_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"error": "Internal server error", "detail": detail}
     )
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title="FoodNutriSync API",
+        version=APP_VERSION,
+        description="BLS Nutrition Data API with JWT Authentication",
+        routes=app.routes,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT"
+        }
+    }
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi

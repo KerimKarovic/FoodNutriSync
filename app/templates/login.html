@@ -228,38 +228,32 @@
             showLoading('🔄 Validating JWT token...');
             
             try {
-                // Store the token and try to access admin page
-                localStorage.setItem('jwt_token', jwtToken);
-                
-                // Test the token by making a request to admin endpoint
-                const response = await fetch('/admin', {
-                    method: 'GET',
+                // Use the proper login endpoint
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${jwtToken}`
-                    }
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ token: jwtToken }),
+                    credentials: 'include'
                 });
                 
                 if (response.ok) {
-                    // Token is valid, show success and redirect
+                    const result = await response.json();
                     showLoading('✅ Token validated! Redirecting to admin dashboard...');
                     
                     setTimeout(() => {
                         window.location.href = '/admin';
                     }, 1500);
                     
-                } else if (response.status === 401 || response.status === 403) {
-                    // Invalid token or insufficient permissions
-                    localStorage.removeItem('jwt_token');
-                    showError('❌ Invalid token or insufficient permissions. Admin role required.');
                 } else {
-                    // Other error
-                    localStorage.removeItem('jwt_token');
-                    showError('❌ Token validation failed. Please check your token.');
+                    const error = await response.json();
+                    showError(`❌ Login failed: ${error.detail || 'Invalid token or insufficient permissions'}`);
                 }
                 
             } catch (error) {
-                localStorage.removeItem('jwt_token');
                 showError(`❌ Connection error: ${error.message}`);
+                console.error('Login error:', error);
             } finally {
                 // Reset button state
                 loginBtn.disabled = false;
@@ -293,6 +287,7 @@
     </script>
 </body>
 </html>
+
 
 
 

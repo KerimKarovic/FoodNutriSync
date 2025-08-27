@@ -50,59 +50,33 @@ class JWTAuth:
                 logger.error(f"Failed to load PEM key: {e}")
     
     async def start_background_refresh(self):
-        """Start background key refresh task"""
-        if self.refresh_task is None:
-            self.refresh_task = asyncio.create_task(self._background_refresh_loop())
-            logger.info("Started background key refresh task")
-    
+        """Start background key refresh task (no-op for PEM keys)"""
+        logger.info("JWT auth initialized with static PEM key")
+        
     async def stop_background_refresh(self):
-        """Stop background key refresh task"""
-        if self.refresh_task:
+        """Stop background key refresh task (no-op for PEM keys)"""
+        if self.refresh_task and not self.refresh_task.done():
             self.refresh_task.cancel()
             try:
                 await self.refresh_task
             except asyncio.CancelledError:
-                logger.info("Background refresh task cancelled")
-            self.refresh_task = None
-            logger.info("Stopped background key refresh task")
-    
-    async def _background_refresh_loop(self):
-        """Background task to refresh keys periodically"""
-        while True:
-            try:
-                await asyncio.sleep(self.refresh_interval * 60)
-                logger.debug("Key refresh check - PEM key is static")
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in background refresh: {e}")
+                pass
+        logger.info("JWT background tasks stopped")
     
     def get_status(self) -> dict:
-        """Get key management status"""
-        next_refresh = None
-        if self.last_refresh:
-            next_refresh = (self.last_refresh + timedelta(minutes=self.refresh_interval)).isoformat()
-        
+        """Get JWT auth status"""
         return {
-            'key_loaded': self.public_key is not None,
-            'key_type': self.key_type,
-            'last_refresh': self.last_refresh.isoformat() if self.last_refresh else None,
-            'next_refresh': next_refresh,
-            'keys_count': 1 if self.public_key else 0,
-            'refresh_interval_minutes': self.refresh_interval,
-            'clock_skew_seconds': self.clock_skew
+            "key_loaded": self.public_key is not None,
+            "key_type": self.key_type,
+            "last_refresh": self.last_refresh.isoformat() if self.last_refresh else None,
+            "algorithm": self.algorithm,
+            "issuer": self.issuer,
+            "audience": self.audience
         }
     
     async def validate_token(self, token: str) -> dict:
         """Validate JWT token with PEM key"""
         try:
-            # Development bypass
-            if os.getenv("ENVIRONMENT") == "development":
-                return {
-                    "sub": "dev_user",
-                    "roles": ["Admin", "BLS-Data-Reader"]
-                }
-            
             if not self.public_key:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -148,14 +122,6 @@ def extract_token_from_request(request: Request) -> Optional[str]:
 
 async def get_current_user(request: Request):
     """Get current authenticated user"""
-    # Development bypass
-    if os.getenv("ENVIRONMENT") == "development":
-        return {
-            "user_id": "dev_user",
-            "roles": ["Admin", "BLS-Data-Reader"],
-            "email": "dev@example.com"
-        }
-    
     token = extract_token_from_request(request)
     if not token:
         raise HTTPException(
@@ -183,9 +149,6 @@ async def get_current_user(request: Request):
 
 async def require_admin(current_user: dict = Depends(get_current_user)):
     """Require Admin role"""
-    if os.getenv("ENVIRONMENT") == "development":
-        return current_user
-    
     user_roles = current_user.get("roles", [])
     admin_roles = os.getenv("ADMIN_ROLES", "Super-Admin,Admin").split(",")
     
@@ -198,9 +161,6 @@ async def require_admin(current_user: dict = Depends(get_current_user)):
 
 async def require_bls_reader(current_user: dict = Depends(get_current_user)):
     """Require BLS-Data-Reader role or higher"""
-    if os.getenv("ENVIRONMENT") == "development":
-        return current_user
-    
     user_roles = current_user.get("roles", [])
     user_roles_allowed = os.getenv("USER_ROLES", "BLS-Data-Reader,User").split(",")
     admin_roles_allowed = os.getenv("ADMIN_ROLES", "Super-Admin,Admin").split(",")
