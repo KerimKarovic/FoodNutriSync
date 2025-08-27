@@ -15,7 +15,7 @@ from .services.bls_service import BLSService
 from .schemas import BLSSearchResponse, BLSUploadResponse
 from .exceptions import BLSNotFoundError, BLSValidationError, FileUploadError
 from .logging_config import setup_logging, app_logger
-from .auth import get_current_user, require_admin
+from .auth import get_current_user, require_admin, jwt_auth
 import chardet
 
 APP_VERSION = "1.4.0"
@@ -24,6 +24,29 @@ app = FastAPI(title="NutriSync", version=APP_VERSION)
 @app.on_event("startup")
 async def startup_logging():
     setup_logging()
+    
+    # Initialize JWT keys on startup
+    try:
+        await jwt_auth._fetch_keys()
+        await jwt_auth.start_background_refresh()
+        app_logger.logger.info("JWT authentication initialized successfully")
+        
+        # Log key status for debugging
+        health = jwt_auth.get_health_status()
+        app_logger.logger.info(f"Key management status: {health}")
+        
+    except Exception as e:
+        app_logger.logger.error(f"Failed to initialize JWT authentication: {e}")
+        # Don't fail startup - let it continue for development mode
+
+@app.on_event("shutdown")
+async def shutdown_cleanup():
+    """Clean shutdown of background tasks"""
+    try:
+        await jwt_auth.stop_background_refresh()
+        app_logger.logger.info("JWT background tasks stopped cleanly")
+    except Exception as e:
+        app_logger.logger.error(f"Error during shutdown cleanup: {e}")
 
 app_start_time = time.time()
 
@@ -234,7 +257,7 @@ async def health(session: AsyncSession = Depends(get_session)):
     }
     
     try:
-        # Database check
+        # Database check only
         db_start = time.time()
         await session.execute(text("SELECT 1"))
         db_latency = round((time.time() - db_start) * 1000)
@@ -245,15 +268,7 @@ async def health(session: AsyncSession = Depends(get_session)):
             "latency_ms": db_latency
         }
         
-        # Auth check
-        auth_mode = "license_manager" if os.getenv("LICENSEMANAGER_PUBLIC_KEY_URL") else "development"
-        auth_enforced = environment != "development"
-        
-        health_response["components"]["auth"] = {
-            "status": "ok",
-            "mode": auth_mode,
-            "enforced": auth_enforced
-        }
+        # Remove the entire auth section - we decided against exposing this
         
     except Exception as e:
         health_response["status"] = "degraded"
