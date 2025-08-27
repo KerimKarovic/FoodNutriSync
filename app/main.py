@@ -190,8 +190,8 @@ async def health(session: AsyncSession = Depends(get_session)):
     }
     
     try:
-        # Database check
-        result = await session.execute(text("SELECT COUNT(*) FROM bls_data LIMIT 1"))
+        # Fix: Use correct table name
+        result = await session.execute(text("SELECT COUNT(*) FROM bls_nutrition LIMIT 1"))
         record_count = result.scalar()
         
         health_response["database"] = {

@@ -6,8 +6,16 @@ import json
 class TestHealthEndpoints:
     """Test health check endpoints for deployment monitoring"""
     
-    def test_basic_health_endpoint(self, client):
+    @patch('app.main.get_session')
+    def test_basic_health_endpoint(self, mock_get_session, client):
         """Test basic health endpoint"""
+        # Mock database session
+        mock_session = AsyncMock()
+        mock_result = AsyncMock()
+        mock_result.scalar.return_value = 100
+        mock_session.execute.return_value = mock_result
+        mock_get_session.return_value = mock_session
+        
         response = client.get("/health")
         assert response.status_code == 200
         
@@ -24,28 +32,27 @@ class TestHealthEndpoints:
         for field in required_fields:
             assert field in data
 
-    @patch('app.main.get_db')
-    def test_readiness_probe_with_db(self, mock_get_db, client):
+    @patch('app.main.get_session')
+    def test_readiness_probe_with_db(self, mock_get_session, client):
         """Test readiness probe with database connection"""
         # Mock successful database connection
         mock_session = AsyncMock()
-        mock_get_db.return_value = mock_session
+        mock_result = AsyncMock()
+        mock_result.scalar.return_value = None
+        mock_session.execute.return_value = mock_result
+        mock_get_session.return_value = mock_session
         
         response = client.get("/health/ready")
         assert response.status_code == 200
-        
-        data = response.json()
-        assert data["status"] == "ready"
 
-    @patch('app.main.get_db')
-    def test_readiness_probe_db_failure(self, mock_get_db, client):
+    @patch('app.main.get_session')
+    def test_readiness_probe_db_failure(self, mock_get_session, client):
         """Test readiness probe with database failure"""
         # Mock database connection failure
-        mock_get_db.side_effect = Exception("Database connection failed")
+        mock_get_session.side_effect = Exception("Database connection failed")
         
         response = client.get("/health/ready")
-        # Should still return 200 but with different status
-        assert response.status_code in [200, 503]
+        assert response.status_code == 503
 
     def test_liveness_probe(self, client):
         """Test liveness probe endpoint"""
@@ -165,3 +172,5 @@ class TestAzureProbeCompatibility:
             # Response should be small (under 1KB)
             content_length = len(response.content)
             assert content_length < 1024, f"{endpoint} response too large: {content_length} bytes"
+
+

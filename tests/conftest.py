@@ -17,9 +17,9 @@ def client():
 def client_with_mock_db():
     """Test client with mocked database"""
     from app.main import app
-    with patch('app.main.get_db') as mock_get_db:
+    with patch('app.main.get_session') as mock_get_session:
         mock_session = AsyncMock(spec=AsyncSession)
-        mock_get_db.return_value = mock_session
+        mock_get_session.return_value = mock_session
         yield TestClient(app)
 
 @pytest.fixture

@@ -13,7 +13,7 @@ class TestAzureConfiguration:
             config = yaml.safe_load(f)
         
         # Required top-level fields
-        assert config["apiVersion"] == "2023-05-01"
+        assert str(config["apiVersion"]) == "2023-05-01"  # Convert to string
         assert config["location"] == "westeurope"
         assert config["name"] == "nutrisync-api"
         assert "properties" in config
@@ -149,7 +149,7 @@ class TestAzureDeploymentScripts:
         """Test Azure setup script exists and has required content"""
         assert os.path.exists("setup-azure-env.sh")
         
-        with open("setup-azure-env.sh", "r") as f:
+        with open("setup-azure-env.sh", "r", encoding='utf-8') as f:
             content = f.read()
             
         # Check for required Azure CLI commands
@@ -293,3 +293,5 @@ class TestAzureMonitoring:
         # Check if log is structured (JSON-like)
         log_output = log_capture.getvalue()
         assert "component" in log_output or "Test structured log" in log_output
+
+

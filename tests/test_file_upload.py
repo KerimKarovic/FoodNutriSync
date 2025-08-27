@@ -21,7 +21,7 @@ class TestFileUpload:
     
     @patch('app.main.bls_service.upload_data')
     def test_upload_csv_success(self, mock_upload, client_with_mock_db):
-        """Test successful TXT upload"""
+        """Test successful CSV upload"""
         mock_upload.return_value = BLSUploadResponse(
             added=1,
             updated=0,
