@@ -1,5 +1,5 @@
 # Azure Container App configuration template
-apiVersion: 2023-05-01
+apiVersion: "2023-05-01"  # Quoted to prevent YAML date parsing
 location: westeurope
 name: nutrisync-api
 properties:

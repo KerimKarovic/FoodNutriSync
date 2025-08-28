@@ -1,7 +1,7 @@
 # app/database.py
 import os
 from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from typing import AsyncGenerator
 
@@ -11,20 +11,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # e.g. postgresql+asyncpg://user:pass@
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set.")
 
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
-
-SessionLocal = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-    class_=AsyncSession,
-)
+engine = create_async_engine(DATABASE_URL, future=True, echo=False)
+SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 Base = declarative_base()
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session with proper typing"""
+async def get_session():
     async with SessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session

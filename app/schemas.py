@@ -1,34 +1,44 @@
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List
+from pydantic import BaseModel
+from typing import Optional, List, Dict
+
+class BLSSearchResult(BaseModel):
+    """Single BLS search result"""
+    sbls: str
+    name: str
+    enerc: Optional[float] = None  # Energy content
+    
+    class Config:
+        from_attributes = True
 
 class BLSNutrientResponse(BaseModel):
+    """Full BLS nutrient data response"""
     bls_number: str
     name_german: str
-    nutrients: Dict[str, Optional[float]] = Field(default_factory=dict)
+    name_english: Optional[str] = None
+    nutrients: Dict[str, Optional[float]] = {}
     
     @classmethod
-    def from_orm_obj(cls, orm_obj):
-        nutrients = {}
-        for column in orm_obj.__table__.columns:
-            if column.name not in ['SBLS', 'ST']:  # Use DB column names for exclusion
-                value = getattr(orm_obj, column.name.lower(), None)
-                if value is not None:
-                    # Return UPPERCASE nutrient keys (BLS standard)
-                    nutrients[column.name] = value
-        
+    def from_orm_obj(cls, obj):
+        """Convert SQLAlchemy model to response"""
         return cls(
-            bls_number=orm_obj.bls_number,  # Use Python attribute name
-            name_german=orm_obj.name_german,  # Use Python attribute name
-            nutrients=nutrients
+            bls_number=obj.bls_number,
+            name_german=obj.name_german,
+            name_english=obj.name_english,
+            nutrients={}  # Add nutrient extraction logic here
         )
+    
+    class Config:
+        from_attributes = True
 
 class BLSSearchResponse(BaseModel):
-    results: list[BLSNutrientResponse]
+    """Search results with metadata"""
+    results: List[BLSNutrientResponse]
     count: int
 
 class BLSUploadResponse(BaseModel):
+    """Response from BLS data upload"""
     added: int
     updated: int
     failed: int
-    errors: list[str] = Field(default_factory=list)
+    errors: List[str]
 

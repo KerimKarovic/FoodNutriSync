@@ -4,56 +4,85 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, MagicMock, patch
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
-import tempfile
-from io import BytesIO
-
+from app.main import app
 @pytest.fixture
 def client():
     """Basic test client"""
     from app.main import app
     return TestClient(app)
 
+@pytest.fixture(scope="session", autouse=True)
+def _set_test_env():
+    os.environ.setdefault("TESTING", "1")
+    os.environ.setdefault("ADMIN_TOKEN", "test-token")
+
+@pytest.fixture
+def public_client():
+    """Test client for public endpoints(no auth)"""
+    with patch.dict(os.environ, {"TESTING": "1", "ENVIRONMENT": "development"}):
+        yield TestClient(app)
+    
+
+@pytest.fixture
+def mock_user():
+    """Mock authenticated user"""
+    return {
+        "user_id": "test_user",
+        "roles": ["Admin", "BLS-Data-Reader"],
+        "email": "test@example.com",
+        "customer_id": "test_customer",
+        "customer_code": "TEST"
+    }
+
 @pytest.fixture
 def client_with_mock_db():
     """Test client with mocked database"""
     from app.main import app
-    with patch('app.main.get_session') as mock_get_session:
-        mock_session = AsyncMock(spec=AsyncSession)
+    
+    with patch('app.database.get_session') as mock_get_session:
+        mock_session = AsyncMock()
+        mock_session.execute.return_value.scalar.return_value = 1
         mock_get_session.return_value = mock_session
-        yield TestClient(app)
-
+        with patch.dict(os.environ, {"TESTING": "1"}):
+            yield TestClient(app)
 @pytest.fixture
 def sample_bls_data():
     """Sample BLS data for testing"""
-    return """SBLS\tST\tENERC\tEPRO\tVC\tMNA
-B123456\tApfel\t52\t0.3\t4.6\t3
-B789012\tBirne\t57\t0.4\t10.4\t7
-C345678\tBanane\t89\t1.1\t22.8\t27"""
+    return "SBLS\tST\tENERC\tEPRO\tVC\tMNA\nB123456\tTest Food\t100\t5.0\t2.0\t50"
 
 @pytest.fixture
-def sample_csv_file(sample_bls_data):
-    """Create temporary CSV file for testing"""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write(sample_bls_data)
-        f.flush()
-        yield f.name
-    os.unlink(f.name)
+def mock_azure_env(monkeypatch):
+    """Mock Azure environment variables for testing"""
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("AZURE_POSTGRES_FQDN", "test-server.postgres.database.azure.com")
+    monkeypatch.setenv("AZURE_POSTGRES_DB", "test_db")
+    monkeypatch.setenv("AZURE_POSTGRES_USER", "test_user")
+    monkeypatch.setenv("AZURE_POSTGRES_PASSWORD", "test_password")
+    monkeypatch.setenv("AZURE_APPINSIGHTS_CONNECTION_STRING", "InstrumentationKey=test-key")
+    monkeypatch.setenv("AZURE_CONTAINERAPPS_ENV", "test-env")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test_user:test_password@test-server.postgres.database.azure.com:5432/test_db")
+    monkeypatch.setenv("ALEMBIC_DATABASE_URL", "postgresql+psycopg2://test_user:test_password@test-server.postgres.database.azure.com:5432/test_db")
+
 
 @pytest.fixture
-def mock_azure_env():
-    """Mock Azure environment variables"""
-    env_vars = {
-        'DATABASE_URL': 'postgresql+asyncpg://test:test@localhost:5432/test_db',
-        'ALEMBIC_DATABASE_URL': 'postgresql+psycopg2://test:test@localhost:5432/test_db',
-        'ENVIRONMENT': 'testing',
-        'LOG_LEVEL': 'DEBUG'
-    }
-    with patch.dict(os.environ, env_vars):
-        yield env_vars
+def client_with_auth(mock_user):
+    """Test client with mocked authentication"""
+    from app.main import app
+    
+    # Mock all auth dependencies that are used in main.py
+    with patch('app.auth.get_current_user', return_value=mock_user), \
+        patch('app.auth.require_admin', return_value=mock_user), \
+        patch('app.auth.require_bls_reader', return_value=mock_user), \
+        patch('app.main.get_current_user', return_value=mock_user), \
+        patch('app.main.require_admin', return_value=mock_user), \
+        patch('app.main.require_bls_reader', return_value=mock_user):
+        
+        # Set testing environment
+        with patch.dict(os.environ, {"ENVIRONMENT": "development", "TESTING": "1"}):
+            yield TestClient(app)
 
 @pytest.fixture
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def client_with_mock_db_and_auth(client_with_mock_db):
+    """Test client with both mocked database and authentication"""
+    client_with_mock_db.headers.update({"Authorization": "Bearer test-token"})
+    return client_with_mock_db
