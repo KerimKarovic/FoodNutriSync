@@ -18,7 +18,7 @@ from .logging_config import setup_logging
 import chardet
 from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
-
+from .exceptions import BLSNotFoundError, BLSValidationError
 from app import auth
 
 # Setup logging first
@@ -101,14 +101,17 @@ async def search_bls(
 
 @app.get("/bls/{bls_number}")
 async def get_bls(
-    bls_number: str = Path(..., pattern=r"^[A-Z]\d{6}$"),  # Invalid format -> 422
+    bls_number: str = Path(..., regex=r"^[A-Z]\d{6}$"),
     session: AsyncSession = Depends(get_session)
 ):
     """Get BLS entry by number"""
-    result = await bls_service.get_by_bls_number(session, bls_number)
-    if not result:
+    try:
+        result = await bls_service.get_by_bls_number(session, bls_number)
+        return result
+    except BLSNotFoundError:
         raise HTTPException(404, "BLS entry not found")
-    return result
+    except BLSValidationError:
+        raise HTTPException(422, "Invalid BLS number format")
 
 # Admin router with auth protection
 admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])

@@ -231,6 +231,10 @@ class TestIntegration:
             search_response = client_with_mock_db_and_auth.get("/bls/search?name=Test")
             assert search_response.status_code == 200
             results = search_response.json()
-            assert len(results) == 1
-            assert results[0]["sbls"] == "B123456"
+            
+            # Fix: access the results array, not the whole response
+            assert results["count"] == 1
+            assert len(results["results"]) == 1
+            assert results["results"][0]["bls_number"] == "B123456"
+
 
