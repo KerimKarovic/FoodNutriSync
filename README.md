@@ -78,7 +78,7 @@ It provides a secure, JWT-authenticated API for retrieving nutrition data by **B
 
 ---
 
-## **🚀 DEPLOYMENT INSTRUCTIONS FOR COMPANY IT**
+## ** DEPLOYMENT INSTRUCTIONS FOR COMPANY IT**
 
 ### **1. Database Setup**
 Create PostgreSQL database and user:
@@ -139,7 +139,7 @@ curl -X PUT "https://your-api-domain.com/admin/upload-bls" \
 
 ---
 
-## **🔐 Authentication & Authorization**
+## ** Authentication & Authorization**
 
 ### **JWT Token Requirements**
 - **Algorithm:** RS256
@@ -153,7 +153,7 @@ Set `ENVIRONMENT=development` to bypass authentication for local testing.
 
 ---
 
-## **📊 Monitoring & Logging**
+## **  Monitoring & Logging**
 
 ### **Structured Logs**
 - **Format:** JSON with timestamps, levels, and context
@@ -166,7 +166,7 @@ Set `ENVIRONMENT=development` to bypass authentication for local testing.
 
 ---
 
-## **🛠️ Local Development**
+## ** Local Development**
 
 ### **Prerequisites**
 - Python 3.11+
@@ -208,7 +208,7 @@ pytest --cov=app
 
 ---
 
-## **📁 Project Structure**
+## ** Project Structure**
 ```
 FoodNutriSync/
 ├── app/
@@ -238,6 +238,6 @@ FoodNutriSync/
 
 ---
 
-## **📞 Support**
+## ** Support**
 
 **API Documentation:** Available at `/docs` endpoint after deployment.
