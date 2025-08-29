@@ -56,17 +56,25 @@ It provides a secure, JWT-authenticated API for retrieving nutrition data by **B
 ## **API Endpoints**
 
 ### **Public Endpoints** (Require JWT Authentication)
+- `GET /bls/search?name=<query>&limit=<number>` – Search BLS entries by German name (limit 1-100)
 - `GET /bls/{bls_number}` – Fetch full nutrient data for a BLS number
-- `GET /bls/search?name=<query>` – Search BLS entries by German name
-- `GET /health` – Health check endpoint
+- `GET /health` – Basic health check endpoint
+- `GET /health/live` – Kubernetes liveness probe with detailed status
+- `GET /health/ready` – Kubernetes readiness probe with database connectivity
 
 ### **Admin Endpoints** (Require Admin Role)
-- `POST /admin/upload-bls` – Upload BLS CSV/TXT file and update database
-- `POST /admin/bulk-import-articles` – Bulk import article-to-BLS mappings
+- `PUT /admin/upload-bls` – Upload BLS dataset file and perform full database replacement
+- `GET /admin` – Admin dashboard interface
+- `GET /login` – Login page for JWT token authentication
 
-### **Interactive Documentation**
-- `GET /docs` – Swagger UI for API testing
-- `GET /redoc` – Alternative API documentation
+### **Authentication Endpoints**
+- `POST /auth/login` – Validate JWT token and set authentication cookie
+- `POST /auth/logout` – Clear authentication session
+
+### **Interactive Documentation** (Require Authentication)
+- `GET /docs` – Protected Swagger UI for API testing
+- `GET /redoc` – Protected alternative API documentation
+- `GET /openapi.json` – Protected OpenAPI schema
 
 ---
 
@@ -124,7 +132,7 @@ alembic upgrade head
 Upload BLS dataset via API:
 ```bash
 # Use /docs interface or curl
-curl -X POST "https://your-api-domain.com/admin/upload-bls" \
+curl -X PUT "https://your-api-domain.com/admin/upload-bls" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -F "file=@bls_dataset.txt"
 ```
