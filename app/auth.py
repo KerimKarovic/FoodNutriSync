@@ -1,4 +1,4 @@
-from fastapi import HTTPException, Depends, Request, APIRouter, Response, Body
+from fastapi import HTTPException, Depends, Request, APIRouter, Response, Body, Security
 from fastapi.security import HTTPBearer
 from starlette import status
 import jwt
@@ -12,6 +12,10 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
+bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
+
+# Add docs-only bearer scheme
+docs_bearer = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 
 # Type alias for allowed public key types
 AllowedPublicKeyTypes = Union[rsa.RSAPublicKey, ec.EllipticCurvePublicKey, ed25519.Ed25519PublicKey, ed448.Ed448PublicKey]
@@ -110,13 +114,13 @@ class JWTAuth:
 jwt_auth = JWTAuth()
 
 def extract_token_from_request(request: Request) -> Optional[str]:
-    """Extract token from Authorization header or cookie"""
-    # Try Authorization header first
+    """Extract JWT token from request (cookie or Authorization header)"""
+    # First try Authorization header (for Swagger UI)
     auth_header = request.headers.get("authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        return auth_header[7:]
+        return auth_header[7:]  # Remove "Bearer " prefix
     
-    # Try cookie
+    # Fallback to cookie (for web UI)
     cookie_name = os.getenv("AUTH_COOKIE_NAME", "lm_token")
     return request.cookies.get(cookie_name)
 
@@ -130,7 +134,7 @@ async def get_current_user(request: Request):
             "email": "test@example.com"
         }
     
-    # Real auth logic here...
+    # Extract token from either Authorization header or cookie
     token = extract_token_from_request(request)
     if not token:
         raise HTTPException(
@@ -140,7 +144,6 @@ async def get_current_user(request: Request):
     
     payload = await jwt_auth.validate_token(token)
     user_id = payload.get("sub")
-    user_roles = payload.get("roles", [])
     
     if not user_id:
         raise HTTPException(
@@ -148,24 +151,28 @@ async def get_current_user(request: Request):
             detail="Invalid token"
         )
     
+    # Log the authentication for debugging
+    logger.info(f"User authenticated: {user_id} via {'header' if request.headers.get('authorization') else 'cookie'}")
+    
     return {
         "user_id": user_id,
-        "roles": user_roles,
+        "roles": payload.get("roles", []),
         "email": payload.get("email"),
         "customer_id": payload.get("customerId"),
         "customer_code": payload.get("customerCode")
     }
 
-def require_admin(request: Request):
-    """Simple token-based auth for admin endpoints"""
-    if os.getenv("TESTING") == "1":
-        expected = os.getenv("ADMIN_TOKEN", "test-token")
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth.split(" ", 1)[1] == expected:
-            return {"user_id": "test_user", "roles": ["Admin"]}
+async def require_admin(current_user: dict = Depends(get_current_user)):
+    """Require Super-Admin role"""
+    user_roles = current_user.get("roles", [])
+    admin_roles = os.getenv("ADMIN_ROLES", "SUPER_ADMIN,Super-Admin").split(",")
     
-    # Production JWT logic here...
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    if not any(role in user_roles for role in admin_roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super-Admin role required"
+        )
+    return current_user
 
 async def require_bls_reader(current_user: dict = Depends(get_current_user)):
     """Require BLS-Data-Reader role or higher"""
@@ -189,7 +196,9 @@ def get_client_ip(request: Request) -> str:
 # Auth router
 router = APIRouter()
 
-@router.post("/auth/login")
+@router.post("/auth/login", 
+            summary="User login", 
+            description="Authenticate user with JWT token and establish secure session cookie")
 async def login(
     request: Request,
     response: Response,
@@ -237,7 +246,9 @@ async def login(
         }
     }
 
-@router.post("/auth/logout")
+@router.post("/auth/logout", 
+            summary="User logout", 
+            description="Clear authentication session and remove secure cookies from browser")
 async def logout(request: Request, response: Response):
     """Logout endpoint"""
     cookie_name = os.getenv("AUTH_COOKIE_NAME", "lm_token")
@@ -246,7 +257,9 @@ async def logout(request: Request, response: Response):
     logger.info("User logout")
     return {"status": "success"}
 
-@router.get("/auth/status")
+@router.get("/auth/status", 
+            summary="Authentication status",
+            dependencies=[Security(docs_bearer)])
 async def auth_status(current_user: dict = Depends(get_current_user)):
     """Get auth status"""
     return {
