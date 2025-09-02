@@ -39,10 +39,16 @@ def client_with_mock_db():
     """Test client with mocked database"""
     from app.main import app
     
-    with patch('app.database.get_session') as mock_get_session:
+    with patch('app.database.get_session') as mock_get_session, \
+        patch('app.auth.verify_admin_credentials') as mock_verify_admin:
+        
         mock_session = AsyncMock()
         mock_session.execute.return_value.scalar.return_value = 1
         mock_get_session.return_value = mock_session
+        
+        # Mock admin credentials verification
+        mock_verify_admin.return_value = {"user_id": "admin@example.com", "roles": ["Admin"]}
+        
         with patch.dict(os.environ, {"TESTING": "1"}):
             yield TestClient(app)
 @pytest.fixture
@@ -84,5 +90,15 @@ def client_with_auth(mock_user):
 @pytest.fixture
 def client_with_mock_db_and_auth(client_with_mock_db):
     """Test client with both mocked database and authentication"""
-    client_with_mock_db.headers.update({"Authorization": "Bearer test-token"})
-    return client_with_mock_db
+    with patch('app.auth.get_current_user') as mock_get_user, \
+         patch('app.auth.require_bls_reader') as mock_require_bls:
+        
+        mock_user = {
+            "user_id": "test_user",
+            "roles": ["Admin", "BLS-Data-Reader"],
+            "email": "test@example.com"
+        }
+        mock_get_user.return_value = mock_user
+        mock_require_bls.return_value = mock_user
+        
+        yield client_with_mock_db

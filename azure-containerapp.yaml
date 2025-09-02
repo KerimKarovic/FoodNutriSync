@@ -1,0 +1,95 @@
+apiVersion: "2023-05-01"
+type: Microsoft.App/containerApps
+name: nutrisync-api
+properties:
+  managedEnvironmentId: /subscriptions/{subscription-id}/resourceGroups/nutrisync-rg/providers/Microsoft.App/managedEnvironments/nutrisync-env
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+    registries:
+    - server: nutrisyncregistry.azurecr.io
+      username: nutrisyncregistry
+      passwordSecretRef: registry-password
+    secrets:
+    - name: registry-password
+      value: "{registry-password}"
+    - name: db-password
+      value: "NutriSync2024!"
+    - name: admin-password
+      value: "admin123"
+  template:
+    containers:
+    - image: nutrisyncregistry.azurecr.io/nutrisync-api:latest
+      name: nutrisync-api
+      resources:
+        cpu: 0.5
+        memory: 1Gi
+      env:
+      - name: DATABASE_URL
+        value: "postgresql+asyncpg://nutrisync:NutriSync2024!@nutrisync-db-server.postgres.database.azure.com:5432/nutrisync_db"
+      - name: ALEMBIC_DATABASE_URL
+        value: "postgresql+psycopg2://nutrisync:NutriSync2024!@nutrisync-db-server.postgres.database.azure.com:5432/nutrisync_db"
+      - name: LICENSEMANAGER_PUBLIC_KEY_PEM
+        value: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtkiVimaNqN7LZ0VD4KWz
+          wAQjfMu+4vJ26zfX5D+2wMM6Q9i7lbfOZZU0FY1qdAH5UzQwcyQxErxHHf/bUfgr
+          1Yc9inADVSXwV76OPpDedBNN/o3TNw8aZqG/YP95q+nGwwbuNKwAQQdzYM1eOv3j
+          fNruHT65xkfzon4ZqGAQPf+JlsuSToALKw4zTgL/DASvpIulBUn5gF7UvPZ5fO0p
+          1COeFaUGFghFJ3M0UOP0HY8R/+og9geeUVwXMRTfjb8+7LHK/y0kkQm/G+FZfLdO
+          hwXaEbiGEjtNE+Au4MylhxxprNxH0LS/HtZw8ZD2z8mw5C4mx6+liQJZ6DePbxnL
+          gQIDAQAB
+          -----END PUBLIC KEY-----
+      - name: LICENSEMANAGER_ISS
+        value: "LM_AUTH"
+      - name: LICENSEMANAGER_AUDIENCE
+        value: "FNS"
+      - name: JWT_ALGORITHM
+        value: "RS256"
+      - name: JWT_CLOCK_SKEW_SECONDS
+        value: "300"
+      - name: AUTH_COOKIE_NAME
+        value: "lm_token"
+      - name: AUTH_COOKIE_SAMESITE
+        value: "strict"
+      - name: USER_ROLES
+        value: "BLS-Data-Reader,User,ROLE_INTEGRATION"
+      - name: ADMIN_ROLES
+        value: "ROLE_SUPER_ADMIN,ROLE_ADMIN"
+      - name: ADMIN_EMAIL
+        value: "admin@company.com"
+      - name: ADMIN_PASSWORD
+        secretRef: admin-password
+      - name: ENVIRONMENT
+        value: "production"
+      - name: LOG_LEVEL
+        value: "INFO"
+      probes:
+      - type: Liveness
+        httpGet:
+          path: /health/live
+          port: 8000
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+      - type: Readiness
+        httpGet:
+          path: /health/ready
+          port: 8000
+        initialDelaySeconds: 10
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 3
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+      rules:
+      - name: http-scaling
+        http:
+          metadata:
+            concurrentRequests: "10"

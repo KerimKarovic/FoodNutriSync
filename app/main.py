@@ -185,7 +185,7 @@ async def ready(session: AsyncSession = Depends(get_session)):
         summary="Search BLS entries by name",
         description="Search BLS nutrition database by German food name and retrieve matching products with full nutrient data")
 async def search_bls(
-    name: str = Query(..., min_length=1, max_length=50, description="German food name to search for"),
+    name: str = Query(..., min_length=1, max_length=1000, description="German food name to search for"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results to return"),
     session: AsyncSession = Depends(get_session)
 ):
