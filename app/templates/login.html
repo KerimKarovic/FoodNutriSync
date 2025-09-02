@@ -176,14 +176,19 @@
             
             <form id="loginForm">
                 <div class="form-group">
-                    <label for="jwtToken">JWT Token</label>
-                    <textarea id="jwtToken" name="jwtToken" required 
-                        placeholder="Paste your JWT token here..."
-                        rows="3"></textarea>
+                    <label for="email">Admin Email</label>
+                    <input type="email" id="email" name="email" required 
+                        placeholder="admin@company.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required 
+                        placeholder="Enter your password">
                 </div>
                 
                 <button type="submit" class="login-btn" id="loginBtn">
-                    Validate & Sign In
+                    Sign In
                 </button>
             </form>
         </div>
@@ -191,8 +196,8 @@
         <div class="info-section">
             <div class="icon">ℹ️</div>
             <div>
-                <strong>Admin JWT Token Required</strong><br>
-                Get your token from the License Manager system<br>
+                <strong>Admin Credentials Required</strong><br>
+                Use your admin email and password to access the system<br>
             </div>
         </div>
     </div>
@@ -201,7 +206,8 @@
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const jwtToken = document.getElementById('jwtToken').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value.trim();
             const loginBtn = document.getElementById('loginBtn');
             const errorDiv = document.getElementById('errorMessage');
             const loadingDiv = document.getElementById('loadingMessage');
@@ -211,44 +217,42 @@
             loadingDiv.style.display = 'none';
             
             // Validate input
-            if (!jwtToken) {
-                showError('Please enter your JWT token');
-                return;
-            }
-            
-            // Basic JWT format validation
-            if (!jwtToken.includes('.') || jwtToken.split('.').length !== 3) {
-                showError('Invalid JWT token format. Token should have 3 parts separated by dots.');
+            if (!email || !password) {
+                showError('Please enter both email and password');
                 return;
             }
             
             // Show loading state
             loginBtn.disabled = true;
-            loginBtn.innerHTML = 'Validating Token...';
-            showLoading('🔄 Validating JWT token...');
+            loginBtn.innerHTML = 'Signing In...';
+            showLoading('🔄 Authenticating...');
             
             try {
-                // Use the proper login endpoint
-                const response = await fetch('/auth/login', {
+                // Call the admin login endpoint
+                const response = await fetch('/auth/admin-login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ token: jwtToken }),
-                    credentials: 'include'
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email: email,
+                        password: password
+                    })
                 });
                 
                 if (response.ok) {
                     const result = await response.json();
-                    showLoading('✅ Token validated! Redirecting to admin dashboard...');
+                    showLoading('✅ Login successful! Redirecting to admin dashboard...');
                     
+                    // Redirect to admin page
                     setTimeout(() => {
                         window.location.href = '/admin';
-                    }, 1500);
+                    }, 1000);
                     
                 } else {
                     const error = await response.json();
-                    showError(`❌ Login failed: ${error.detail || 'Invalid token or insufficient permissions'}`);
+                    showError(`❌ ${error.detail || 'Login failed'}`);
                 }
                 
             } catch (error) {
@@ -257,7 +261,7 @@
             } finally {
                 // Reset button state
                 loginBtn.disabled = false;
-                loginBtn.innerHTML = 'Validate & Sign In';
+                loginBtn.innerHTML = 'Sign In';
                 loadingDiv.style.display = 'none';
             }
         });
@@ -274,16 +278,8 @@
             loadingDiv.style.display = 'block';
         }
         
-        // Auto-focus JWT token field
-        document.getElementById('jwtToken').focus();
-        
-        // Handle Enter key in JWT token field (Ctrl+Enter to submit)
-        document.getElementById('jwtToken').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.ctrlKey) {
-                e.preventDefault();
-                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
-            }
-        });
+        // Auto-focus email field
+        document.getElementById('email').focus();
     </script>
 </body>
 </html>

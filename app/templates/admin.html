@@ -242,8 +242,12 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1> BLS Dataset Management</h1>
-            <div class="subtitle">Bundeslebensmittelschlüssel Data Administration</div>
+            <h1>🍎 BLS Admin Dashboard</h1>
+            <p>Nutrition Data Management Portal</p>
+            <div class="user-info">
+                👤 {{ user.user_id }} | 🏷️ {{ user.roles|join(', ') }}
+                <button onclick="adminLogout()" class="logout-btn">Logout</button>
+            </div>
         </div>
         
         <div class="content">
@@ -462,13 +466,31 @@
 
         // Load permissions on page load
         document.addEventListener('DOMContentLoaded', loadUserPermissions);
+
+        // Add admin logout function
+        async function adminLogout() {
+            try {
+                const response = await fetch('/auth/admin-logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                
+                if (response.ok) {
+                    // Redirect to login page
+                    window.location.href = '/login';
+                } else {
+                    console.error('Logout failed');
+                    // Force redirect anyway
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                // Force redirect anyway
+                window.location.href = '/login';
+            }
+        }
     </script>
 </body>
 </html>
-
-
-
-
-
 
 

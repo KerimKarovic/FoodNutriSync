@@ -13,7 +13,7 @@ from .database import get_session
 from .services.bls_service import BLSService
 from .schemas import BLSUploadResponse
 from .exceptions import BLSNotFoundError, BLSValidationError
-from .auth import get_current_user, require_admin, require_bls_reader, get_client_ip, jwt_auth, extract_token_from_request, docs_bearer
+from .auth import get_current_user, require_admin, require_bls_reader, jwt_auth, extract_token_from_request, docs_bearer, verify_admin_credentials
 from .logging_config import setup_logging
 import chardet
 from fastapi.security import HTTPBearer
@@ -65,8 +65,8 @@ app.add_middleware(
 async def startup_event():
     """Application startup tasks"""
     try:
-        # Start JWT background tasks
-        await jwt_auth.start_background_refresh()
+        # JWT auth is already initialized with static PEM key
+        # No background refresh needed for static keys
         
         # Log initialization status
         app_logger.info("JWT authentication initialized successfully")
@@ -81,9 +81,8 @@ async def startup_event():
 async def shutdown_event():
     """Application shutdown tasks"""
     try:
-        # Stop JWT background tasks
-        await jwt_auth.stop_background_refresh()
-        app_logger.info("JWT background tasks stopped cleanly")
+        # JWT uses static PEM key - no background tasks to stop
+        app_logger.info("Application shutdown completed")
         
     except Exception as e:
         app_logger.error(f"Shutdown error: {e}")
@@ -213,14 +212,14 @@ async def get_bls(
         raise HTTPException(422, "Invalid BLS number format")
 
 # Admin router with auth protection
-admin_router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(get_current_user)])
+admin_router = APIRouter(prefix="/admin", tags=["Admin"])
 
 @admin_router.put("/upload-bls", 
                 summary="Upload BLS dataset", 
-                description="Upload and replace entire BLS nutrition database with new dataset from CSV/TXT file")
+                description="Upload with admin username/password")
 async def upload_bls_data(
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_admin),
+    admin_user: dict = Depends(verify_admin_credentials),  # Changed from require_admin
     session: AsyncSession = Depends(get_session)
 ):
     """Upload BLS dataset file - FULL DATASET REPLACEMENT"""
@@ -256,24 +255,22 @@ app.include_router(admin_router)
 async def admin_dashboard(request: Request):
     """Admin dashboard with redirect to login if not authenticated"""
     try:
-        # Try to get current user
-        token = extract_token_from_request(request)
-        if not token:
-            return RedirectResponse(url="/login?next=/admin", status_code=302)
+        # Check for admin session cookie
+        admin_session = request.cookies.get("admin_session")
         
-        # Validate token and check admin role
-        payload = await jwt_auth.validate_token(token)
-        user_roles = payload.get("roles", [])
-        admin_roles = os.getenv("ADMIN_ROLES", "Super-Admin,Admin").split(",")
+        if admin_session and admin_session.startswith("admin:"):
+            email = admin_session.split(":", 1)[1]
+            
+            # Verify the email matches our admin email
+            admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+            if email == admin_email:
+                return templates.TemplateResponse("admin.html", {
+                    "request": request,
+                    "user": {"user_id": email, "roles": ["Admin"]}
+                })
         
-        if not any(role in user_roles for role in admin_roles):
-            return RedirectResponse(url="/login?next=/admin", status_code=302)
-        
-        # User is authenticated and has admin role
-        return templates.TemplateResponse("admin.html", {
-            "request": request,
-            "user": {"user_id": payload.get("sub"), "roles": user_roles}
-        })
+        # No valid session - redirect to login
+        return RedirectResponse(url="/login?next=/admin", status_code=302)
         
     except Exception:
         # Any auth error -> redirect to login
@@ -311,7 +308,13 @@ def custom_openapi():
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
-            "bearerFormat": "JWT"
+            "bearerFormat": "JWT",
+            "description": "JWT token for ROLE_INTEGRATION users"
+        },
+        "BasicAuth": {
+            "type": "http",
+            "scheme": "basic",
+            "description": "Username/password for admin endpoints"
         }
     }
     app.openapi_schema = openapi_schema

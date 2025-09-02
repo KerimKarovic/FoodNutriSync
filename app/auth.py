@@ -1,5 +1,7 @@
+import asyncio
+from datetime import datetime
 from fastapi import HTTPException, Depends, Request, APIRouter, Response, Body, Security
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPBearer
 from starlette import status
 import jwt
 import os
@@ -7,8 +9,7 @@ import logging
 from typing import Optional, Literal, Union
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
-import asyncio
-from datetime import datetime, timedelta
+import secrets
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
@@ -16,6 +17,26 @@ bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 
 # Add docs-only bearer scheme
 docs_bearer = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
+
+# Add basic auth for admin endpoints
+admin_basic_auth = HTTPBasic()
+
+def verify_admin_credentials(credentials: HTTPBasicCredentials = Depends(admin_basic_auth)):
+    """Verify admin email/password"""
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    
+    is_correct_email = secrets.compare_digest(credentials.username, admin_email)
+    is_correct_password = secrets.compare_digest(credentials.password, admin_password)
+    
+    if not (is_correct_email and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    
+    return {"user_id": credentials.username, "roles": ["Admin"]}
 
 # Type alias for allowed public key types
 AllowedPublicKeyTypes = Union[rsa.RSAPublicKey, ec.EllipticCurvePublicKey, ed25519.Ed25519PublicKey, ed448.Ed448PublicKey]
@@ -52,20 +73,6 @@ class JWTAuth:
                     
             except Exception as e:
                 logger.error(f"Failed to load PEM key: {e}")
-    
-    async def start_background_refresh(self):
-        """Start background key refresh task (no-op for PEM keys)"""
-        logger.info("JWT auth initialized with static PEM key")
-        
-    async def stop_background_refresh(self):
-        """Stop background key refresh task (no-op for PEM keys)"""
-        if self.refresh_task and not self.refresh_task.done():
-            self.refresh_task.cancel()
-            try:
-                await self.refresh_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("JWT background tasks stopped")
     
     def get_status(self) -> dict:
         """Get JWT auth status"""
@@ -163,35 +170,43 @@ async def get_current_user(request: Request):
     }
 
 async def require_admin(current_user: dict = Depends(get_current_user)):
-    """Require Super-Admin role"""
+    """Require Super-Admin role - ONLY for admin functions (upload/management)"""
     user_roles = current_user.get("roles", [])
-    admin_roles = os.getenv("ADMIN_ROLES", "SUPER_ADMIN,Super-Admin").split(",")
     
-    if not any(role in user_roles for role in admin_roles):
+    # Only super admin roles allowed for admin functions
+    super_admin_roles = ["ROLE_SUPER_ADMIN", "Super-Admin", "Admin"]
+    
+    if not any(role in user_roles for role in super_admin_roles):
+        logger.warning(f"Admin access denied - User: {current_user.get('user_id')}, Roles: {user_roles}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Super-Admin role required"
+            detail=f"Super-Admin role required for admin functions. Current roles: {user_roles}"
         )
+    
+    logger.info(f"Admin access granted - User: {current_user.get('user_id')}, Roles: {user_roles}")
     return current_user
 
 async def require_bls_reader(current_user: dict = Depends(get_current_user)):
-    """Require BLS-Data-Reader role or higher"""
+    """Require integration role - for GET endpoints (data access)"""
     user_roles = current_user.get("roles", [])
-    user_roles_allowed = os.getenv("USER_ROLES", "BLS-Data-Reader,User").split(",")
-    admin_roles_allowed = os.getenv("ADMIN_ROLES", "Super-Admin,Admin").split(",")
-    allowed_roles = user_roles_allowed + admin_roles_allowed
+    
+    # Integration roles for data access
+    integration_roles = ["ROLE_INTEGRATION"]
+    
+    # Super admin also gets data access
+    admin_roles = ["ROLE_SUPER_ADMIN", "Super-Admin", "Admin"]
+    
+    allowed_roles = integration_roles + admin_roles
     
     if not any(role in user_roles for role in allowed_roles):
+        logger.warning(f"BLS access denied - User: {current_user.get('user_id')}, Roles: {user_roles}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="BLS-Data-Reader role required"
+            detail=f"ROLE_INTEGRATION required for data access. Current roles: {user_roles}"
         )
+    
+    logger.info(f"BLS access granted - User: {current_user.get('user_id')}, Roles: {user_roles}")
     return current_user
-
-def get_client_ip(request: Request) -> str:
-    """Extract client IP"""
-    fwd = request.headers.get("x-forwarded-for")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
 
 # Auth router
 router = APIRouter()
@@ -252,9 +267,14 @@ async def login(
 async def logout(request: Request, response: Response):
     """Logout endpoint"""
     cookie_name = os.getenv("AUTH_COOKIE_NAME", "lm_token")
-    response.delete_cookie(key=cookie_name, path="/")
     
-    logger.info("User logout")
+    # Clear cookie with multiple configurations to ensure it's removed
+    response.delete_cookie(key=cookie_name, path="/")
+    response.delete_cookie(key=cookie_name, path="/", domain=None)
+    response.delete_cookie(key=cookie_name, path="/", secure=False)
+    response.delete_cookie(key=cookie_name, path="/", httponly=True)
+    
+    logger.info("User logout - JWT cookie cleared")
     return {"status": "success"}
 
 @router.get("/auth/status", 
@@ -268,4 +288,79 @@ async def auth_status(current_user: dict = Depends(get_current_user)):
             "user_id": current_user.get("user_id"),
             "roles": current_user.get("roles", [])
         }
+    }
+
+@router.post("/auth/admin-login", 
+            summary="Admin login", 
+            description="Authenticate admin with email/password")
+async def admin_login(
+    request: Request,
+    response: Response,
+    login_data: dict = Body(...)
+):
+    """Admin login endpoint - validates credentials"""
+    email = login_data.get("email", "").strip()
+    password = login_data.get("password", "").strip()
+    
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+    
+    # Verify admin credentials
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    
+    is_correct_email = secrets.compare_digest(email, admin_email)
+    is_correct_password = secrets.compare_digest(password, admin_password)
+    
+    if not (is_correct_email and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials"
+        )
+    
+    # Set admin session cookie
+    response.set_cookie(
+        key="admin_session",
+        value=f"admin:{email}",
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT") == "production",
+        samesite="strict",
+        max_age=24 * 60 * 60,
+        path="/"
+    )
+    
+    logger.info(f"Admin login: {email}")
+    
+    return {
+        "status": "success",
+        "user": {
+            "user_id": email,
+            "roles": ["Admin"]
+        }
+    }
+
+@router.post("/auth/admin-logout", 
+            summary="Admin logout", 
+            description="Clear admin session and redirect to login")
+async def admin_logout(request: Request, response: Response):
+    """Admin logout endpoint - clears admin session"""
+    # Clear admin session cookie with multiple configurations
+    response.delete_cookie(key="admin_session", path="/")
+    response.delete_cookie(key="admin_session", path="/", domain=None)
+    response.delete_cookie(key="admin_session", path="/", secure=False)
+    response.delete_cookie(key="admin_session", path="/", httponly=True)
+    
+    # Also clear JWT cookie
+    cookie_name = os.getenv("AUTH_COOKIE_NAME", "lm_token")
+    response.delete_cookie(key=cookie_name, path="/")
+    response.delete_cookie(key=cookie_name, path="/", domain=None)
+    response.delete_cookie(key=cookie_name, path="/", secure=False)
+    response.delete_cookie(key=cookie_name, path="/", httponly=True)
+    
+    logger.info("Admin logout - all cookies cleared")
+    
+    return {
+        "status": "success",
+        "message": "Admin session cleared",
+        "redirect": "/login"
     }
