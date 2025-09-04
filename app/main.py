@@ -65,13 +65,11 @@ app.add_middleware(
 async def startup_event():
     """Application startup tasks"""
     try:
-        # JWT auth is already initialized with static PEM key
-        # No background refresh needed for static keys
-        
         # Log initialization status
-        app_logger.info("JWT authentication initialized successfully")
-        status = jwt_auth.get_status()
-        app_logger.info(f"Key management status: {status}")
+        if jwt_auth.public_key:
+            app_logger.info("JWT authentication initialized with PEM key")
+        else:
+            app_logger.warning("JWT authentication initialized without keys (development mode)")
         
     except Exception as e:
         app_logger.error(f"Startup failed: {e}")
@@ -81,7 +79,6 @@ async def startup_event():
 async def shutdown_event():
     """Application shutdown tasks"""
     try:
-        # JWT uses static PEM key - no background tasks to stop
         app_logger.info("Application shutdown completed")
         
     except Exception as e:
@@ -147,7 +144,7 @@ async def ready(session: AsyncSession = Depends(get_session)):
             "checks": {
                 "database": "failed",
                 "application": "ready",
-                "jwt_auth": "loaded" if jwt_auth.public_key else "missing"
+                "jwt_auth": "loaded" if jwt_auth.get_status()['keys_loaded'] > 0 else "missing"
             },
             "database": {
                 "status": db_status,

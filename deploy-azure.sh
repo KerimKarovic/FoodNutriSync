@@ -15,8 +15,10 @@ IMAGE_TAG="latest"
 
 
 --env-vars \
-DATABASE_URL=
-ALEMBIC_DATABASE_URL=
+DATABASE_URL="postgresql+asyncpg://user:pass@company-db-server:5432/nutrisync_db" \
+ALEMBIC_DATABASE_URL="postgresql+psycopg2://user:pass@company-db-server:5432/nutrisync_db" \
+LICENSEMANAGER_PUBLIC_KEY_URL="https://licensemanager-api.kiratik-devs.de/api/public-key" \
+LM_JWKS_REFRESH_MINUTES="15" \
 LICENSEMANAGER_PUBLIC_KEY_PEM="-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtkiVimaNqN7LZ0VD4KWz
 wAQjfMu+4vJ26zfX5D+2wMM6Q9i7lbfOZZU0FY1qdAH5UzQwcyQxErxHHf/bUfgr
@@ -25,15 +27,9 @@ fNruHT65xkfzon4ZqGAQPf+JlsuSToALKw4zTgL/DASvpIulBUn5gF7UvPZ5fO0p
 1COeFaUGFghFJ3M0UOP0HY8R/+og9geeUVwXMRTfjb8+7LHK/y0kkQm/G+FZfLdO
 hwXaEbiGEjtNE+Au4MylhxxprNxH0LS/HtZw8ZD2z8mw5C4mx6+liQJZ6DePbxnL
 gQIDAQAB
------END PUBLIC KEY-----"
-
-LICENSEMANAGER_ISS=LM_AUTH
-LICENSEMANAGER_AUDIENCE=FNS
-
-USER_ROLES=BLS-Data-Reader,User,ROLE_INTEGRATION
-ADMIN_ROLES=ROLE_SUPER_ADMIN,ROLE_ADMIN
-ENVIRONMENT=production
-LOG_LEVEL="INFO"
+-----END PUBLIC KEY-----" \
+LICENSEMANAGER_ISS=LM_AUTH \
+LICENSEMANAGER_AUDIENCE=FNS \
 
 
 echo " Deploying NutriSync BLS API to Azure Container Apps..."
@@ -113,3 +109,4 @@ az containerapp exec \
   --command "alembic upgrade head"
 
 echo " NutriSync BLS API is now live on Azure!"
+
