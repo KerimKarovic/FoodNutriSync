@@ -34,10 +34,9 @@ class TestSmoke:
 
     @pytest.mark.smoke
     def test_bls_search_with_auth(self, client_with_bls_auth):
-        """BLS search works with proper JWT auth"""
-        with patch('app.services.bls_service.BLSService.search_by_name') as mock_search:
-            mock_search.return_value = []
-            response = client_with_bls_auth.get("/bls/search?q=apple")
+        """BLS search works with proper auth"""
+        with patch('app.services.bls_service.BLSService.search_by_name', return_value=[]):
+            response = client_with_bls_auth.get("/bls/search?q=Apfel&limit=5")
             assert response.status_code == 200
 
     @pytest.mark.smoke
@@ -121,6 +120,7 @@ class TestIntegration:
     """End-to-end integration tests"""
     
     # Removed test_upload_then_search_workflow
+
 
 
 

@@ -156,7 +156,26 @@ async def upload_bls_dataset(
     if "SBLS" not in df.columns and len(df.columns) > 0:
         df.rename(columns={df.columns[0]: "SBLS"}, inplace=True)
 
-    return await bls_service.upload_data(session, df, file.filename or "upload.txt")
+    # Process/Upload
+    service_result = await bls_service.upload_data(session, df, file.filename or "upload.txt")
+
+    # Normalize to BLSUploadResponse for response validation
+    if isinstance(service_result, BLSUploadResponse):
+        return service_result
+
+    if isinstance(service_result, dict):
+        errs = service_result.get("errors", [])
+        if not isinstance(errs, list):
+            errs = [str(errs)]
+        return BLSUploadResponse(
+            added=int(service_result.get("added", service_result.get("records", 0)) or 0),
+            updated=int(service_result.get("updated", 0) or 0),
+            failed=int(service_result.get("failed", 0) or 0),
+            errors=errs,
+        )
+
+    # Fallback: unexpected result shape from service
+    return BLSUploadResponse(added=0, updated=0, failed=0, errors=["Unexpected response from service"])
 
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/", include_in_schema=False)

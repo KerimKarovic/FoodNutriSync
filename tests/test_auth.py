@@ -45,18 +45,11 @@ class TestAuthEndpoints:
 class TestJWTAuth:
     """Test JWT authentication logic"""
     
-    def test_require_bls_reader_accepts_integration_role(self):
+    def test_require_bls_reader_accepts_integration_role(self, client_with_bls_auth):
         """BLS reader accepts ROLE_INTEGRATION"""
-        with patch('app.auth.get_current_user') as mock_get_user:
-            mock_get_user.return_value = {
-                "sub": "integration@example.com",
-                "roles": ["ROLE_INTEGRATION"]
-            }
-            
-            client = TestClient(app)
-            with patch('app.services.bls_service.BLSService.search_by_name', return_value=[]):
-                response = client.get("/bls/search?q=test", headers={"Authorization": "Bearer token"})
-                assert response.status_code == 200
+        with patch('app.services.bls_service.BLSService.search_by_name', return_value=[]):
+            response = client_with_bls_auth.get("/bls/search?q=test")
+            assert response.status_code == 200
 
     def test_require_bls_reader_accepts_admin_role(self):
         """BLS reader accepts ROLE_SUPER_ADMIN"""

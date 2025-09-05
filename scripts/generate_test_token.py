@@ -23,7 +23,7 @@ def make_token(email: str, roles, minutes: int = 1440):
     return jwt.encode(payload, SECRET, algorithm=ALG)
 
 if __name__ == "__main__":
-    # Updated role names to match your new auth system
+    # Updated role names to match your auth system
     admin = make_token("admin@kiratik.de", ["ROLE_SUPER_ADMIN"])
     integ = make_token("integration@kiratik.de", ["ROLE_INTEGRATION"])
     

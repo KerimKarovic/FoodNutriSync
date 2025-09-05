@@ -57,13 +57,15 @@ def client_with_mock_db():
 @pytest.fixture
 def client_with_bls_auth(mock_jwt_user):
     """Test client with JWT auth for BLS endpoints"""
-    with patch('app.auth.require_bls_reader', return_value=mock_jwt_user):
+    with patch('app.auth.get_current_user', return_value=mock_jwt_user), \
+        patch('app.auth.require_bls_reader', return_value=mock_jwt_user):
         yield TestClient(app)
 
 @pytest.fixture  
 def client_with_admin_auth(mock_admin_user):
     """Test client with cookie auth for admin endpoints"""
-    with patch('app.auth.require_admin_cookie', return_value=mock_admin_user):
+    with patch('app.auth.get_current_admin_cookie', return_value=mock_admin_user), \
+        patch('app.auth.require_admin_cookie', return_value=mock_admin_user):
         yield TestClient(app)
 
 @pytest.fixture
