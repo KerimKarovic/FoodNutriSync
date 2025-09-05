@@ -19,3 +19,4 @@ if __name__ == "__main__":
     integ = make_token("integration@kiratik.de", ["ROLE_INTEGRATION"])
     print("\nAdmin:\nBearer", admin)
     print("\nIntegration:\nBearer", integ)
+

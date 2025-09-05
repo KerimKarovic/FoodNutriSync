@@ -48,62 +48,55 @@ class BLSService:
         )
     
     async def upload_data(self, session: AsyncSession, df: pd.DataFrame, filename: str) -> BLSUploadResponse:
-        """Process and upload BLS data from DataFrame - FULL DATASET REPLACEMENT"""
+        """Process and upload BLS data from DataFrame - FULL DATASET REPLACEMENT (atomic)."""
         validator = BLSDataValidator()
         valid_records, errors = validator.validate_dataframe(df, filename)
-        
+
         if not valid_records:
             return BLSUploadResponse(added=0, updated=0, failed=len(errors), errors=errors[:10])
-        
-        try:
-            # STEP 1: Clear all existing BLS data
-            await session.execute(text("DELETE FROM bls_nutrition"))
-            await session.commit()  # Commit the delete immediately
-            
-            # STEP 2: Insert new data in batches
-            estimated_cols_per_record = 140
-            safe_batch_size = min(100, 25000 // estimated_cols_per_record)
-            
-            total_added = 0
-            
+
+        total_added = 0
+        estimated_cols_per_record = 140
+        safe_batch_size = min(100, 25000 // estimated_cols_per_record)
+
+        # Single atomic transaction: either everything replaces, or nothing changes
+        async with session.begin():
+            # TRUNCATE is transactional in Postgres inside a transaction block
+            await session.execute(text('TRUNCATE TABLE bls_nutrition'))
+
             for i in range(0, len(valid_records), safe_batch_size):
                 batch = valid_records[i:i + safe_batch_size]
-                added = await self._bulk_insert_new_data(session, batch)
-                total_added += added
-            
-            return BLSUploadResponse(
-                added=total_added,
-                updated=0,  # No updates in full replacement mode
-                failed=len(errors),
-                errors=errors[:10]
-            )
-            
-        except Exception as e:
-            await session.rollback()
-            raise
+                total_added += await self._bulk_insert_new_data(session, batch)
+
+        return BLSUploadResponse(
+            added=total_added,
+            updated=0,
+            failed=len(errors),
+            errors=errors[:10]
+        )
 
     async def _bulk_insert_new_data(self, session: AsyncSession, records: List[dict]) -> int:
-        """Insert new records after full table clear"""
+        """Insert records (no per-batch commit; outer transaction handles commit)."""
         if not records:
             return 0
 
         table = BLSNutrition.__table__
         db_cols = {c.name for c in table.c}
-        
+
         filtered_records = []
         for record in records:
-            filtered_record = {k: v for k, v in record.items() if k in db_cols}
-            if filtered_record and 'SBLS' in filtered_record:
-                filtered_records.append(filtered_record)
-        
+            # keep only columns that exist in the table
+            filtered = {k: v for k, v in record.items() if k in db_cols}
+            if filtered and 'SBLS' in filtered:
+                filtered_records.append(filtered)
+
         if not filtered_records:
             return 0
 
-        # Simple insert - no conflict handling needed after DELETE
         stmt = insert(table).values(filtered_records)
         await session.execute(stmt)
-        await session.commit()  # Commit each batch
-        
+        # NO COMMIT HERE — we rely on the outer transaction
+
         return len(filtered_records)
 
     # Removed bulk_import_articles and _batch_get_bls_records methods
@@ -118,6 +111,16 @@ class BLSDataValidator:
     
     def validate_dataframe(self, df: pd.DataFrame, filename: str) -> Tuple[List[dict], List[str]]:
         """Validate DataFrame and return valid records + errors"""
+        # Normalize headers/cells again in case caller forgot
+        def _norm(s):
+            return s.replace("\ufeff", "").replace("\xa0", " ").strip() if isinstance(s, str) else s
+
+        df.columns = [_norm(c) for c in df.columns]
+        df = df.map(_norm)
+
+        if "SBLS" not in df.columns and len(df.columns) > 0:
+            df.rename(columns={df.columns[0]: "SBLS"}, inplace=True)
+
         valid_records = []
         errors = []
         
@@ -267,35 +270,4 @@ class BLSDataValidator:
                         continue
         
         return nutrients
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

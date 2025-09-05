@@ -2,7 +2,7 @@
 import os, json, requests
 from dotenv import load_dotenv
 from jose import jwt
-from datetime import datetime, timedelta
+import time
 
 load_dotenv()
 BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
@@ -11,7 +11,7 @@ ALG = "HS256"
 AUD = os.getenv("ALLOWED_APP_CODES", "KWAS,KOA,DDN,FWH,KA").split(",")
 
 def token(email, roles, mins=60):
-    now = int(datetime.utcnow().timestamp())
+    now = int(time.time())  # Use time.time() instead of datetime.utcnow().timestamp()
     payload = {"sub": email, "email": email, "roles": roles, "iss": "LM_AUTH", "aud": AUD, "iat": now, "exp": now + mins*60}
     return jwt.encode(payload, SECRET, algorithm=ALG)
 
@@ -44,3 +44,4 @@ if __name__ == "__main__":
     t("upload-bls integration", "PUT", f"{BASE}/admin/upload-bls", 403, headers=auth_header(integ))
     # admin call without file -> 422 expected (validates permission first, then body)
     t("upload-bls admin (no file)", "PUT", f"{BASE}/admin/upload-bls", 422, headers=auth_header(admin))
+
