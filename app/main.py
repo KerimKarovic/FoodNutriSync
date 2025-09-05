@@ -12,7 +12,7 @@ from fastapi import (
     Path as FPath, Query, Request, Security, UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -194,10 +194,39 @@ async def openapi_json():
     return app.openapi()
 
 @app.get("/docs", include_in_schema=False)
-async def swagger_ui():
+def swagger_ui():
     from fastapi.openapi.docs import get_swagger_ui_html
-    return get_swagger_ui_html(openapi_url="/openapi.json", title="FoodNutriSync API",
-                            swagger_ui_parameters={"persistAuthorization": True})
+
+    base = get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="FoodNutriSync API",
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
+
+    # get the original HTML as text
+    body = base.body
+    if isinstance(body, (bytes, bytearray)):
+        html = body.decode("utf-8")
+    else:
+        html = str(body)  # already a string in some versions
+
+    # inject the Admin button
+    inject = """
+    <style>
+      #adminButton{
+        position:fixed; top:12px; right:12px; z-index:1000;
+        padding:8px 12px; border-radius:8px; text-decoration:none;
+        background:#111827; color:#fff; font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+        box-shadow:0 2px 6px rgba(0,0,0,.15)
+      }
+      #adminButton:hover{ filter:brightness(1.1) }
+    </style>
+    <a id="adminButton" href="/admin">⛭ Admin Dashboard</a>
+    """
+    html = html.replace("</body>", inject + "</body>")
+
+    # IMPORTANT: don't reuse base.headers (it contains the old Content-Length)
+    return HTMLResponse(content=html, status_code=base.status_code, media_type="text/html")
 
 @app.get("/", include_in_schema=False)
 async def root():

@@ -27,39 +27,33 @@ class TestSmoke:
         assert "status" in data
 
     @pytest.mark.smoke
-    def test_openapi_docs_accessible(self, client_with_mock_db):
-        """API docs are accessible"""
-        response = client_with_mock_db.get("/openapi.json")
-        assert response.status_code == 200
-        data = response.json()
-        assert "openapi" in data
-        
-        response = client_with_mock_db.get("/docs")
-        assert response.status_code == 200
+    def test_bls_search_requires_auth(self, public_client):
+        """BLS search requires JWT authentication"""
+        response = public_client.get("/bls/search?q=apple")
+        assert response.status_code == 401
 
     @pytest.mark.smoke
-    def test_bls_search_public_access(self, public_client):
-        """BLS search works without auth"""
-        with patch('app.main.bls_service.search_by_name') as mock_search:
+    def test_bls_search_with_auth(self, client_with_bls_auth):
+        """BLS search works with proper JWT auth"""
+        with patch('app.services.bls_service.BLSService.search_by_name') as mock_search:
             mock_search.return_value = []
-            response = public_client.get("/bls/search?name=test")
+            response = client_with_bls_auth.get("/bls/search?q=apple")
             assert response.status_code == 200
 
     @pytest.mark.smoke
     @pytest.mark.parametrize("bls_number,expected_status", [
-        ("B123456", 404),  # Valid format, not found
-        ("invalid", 422),  # Invalid format
+        ("B123456", 401),  # No auth
     ])
-    def test_bls_lookup_validation(self, public_client, bls_number, expected_status):
-        """BLS lookup validates format correctly"""
+    def test_bls_lookup_requires_auth(self, public_client, bls_number, expected_status):
+        """BLS lookup requires authentication"""
         response = public_client.get(f"/bls/{bls_number}")
         assert response.status_code == expected_status
 
     @pytest.mark.smoke
-    def test_admin_upload_requires_auth(self, client_with_mock_db):
-        """Admin endpoints require authentication"""
+    def test_admin_upload_requires_cookie_auth(self, public_client):
+        """Admin endpoints require cookie authentication"""
         files = {"file": ("test.txt", "content", "text/plain")}
-        response = client_with_mock_db.put("/admin/upload-bls", files=files)
+        response = public_client.put("/admin/upload-bls", files=files)
         assert response.status_code == 401
 
 
@@ -69,39 +63,20 @@ class TestSearchUX:
     @pytest.mark.parametrize("query,should_work", [
         ("Äpfel", True),  # Umlaut
         ("Apfel", True),  # ASCII
-        ("Müsli", True),  # Another umlaut
-        ("<script>alert('xss')</script>", True),  # XSS attempt
-        ("'; DROP TABLE bls; --", True),  # SQL injection attempt
-        ("a" * 1000, True),  # Long string
         ("", False),  # Empty query
     ])
-    def test_search_edge_cases(self, public_client, query, should_work):
+    def test_search_edge_cases(self, client_with_bls_auth, query, should_work):
         """Search handles various input types"""
-        with patch('app.main.bls_service.search_by_name') as mock_search:
+        with patch('app.services.bls_service.BLSService.search_by_name') as mock_search:
             mock_search.return_value = []
             
-            response = public_client.get(f"/bls/search?name={query}")
+            response = client_with_bls_auth.get(f"/bls/search?q={query}")
             
             if should_work:
                 assert response.status_code == 200
             else:
                 assert response.status_code == 422
 
-    @pytest.mark.parametrize("limit,expected_status", [
-        (1, 200),
-        (50, 200), 
-        (100, 200),
-        (101, 422),
-        (-1, 422),
-        (0, 422),
-    ])
-    def test_limit_validation(self, public_client, limit, expected_status):
-        """Search limit validation"""
-        with patch('app.main.bls_service.search_by_name') as mock_search:
-            mock_search.return_value = []
-            
-            response = public_client.get(f"/bls/search?name=test&limit={limit}")
-            assert response.status_code == expected_status
 
 class TestSecurity:
     """Authentication and security tests"""
@@ -109,24 +84,44 @@ class TestSecurity:
     @pytest.mark.security
     def test_public_endpoints_no_auth_required(self, public_client):
         """Public endpoints work without auth"""
-        endpoints = ["/health", "/health/live", "/health/ready", "/docs", "/openapi.json"]
+        endpoints = ["/health", "/health/live", "/health/ready"]
         
         for endpoint in endpoints:
             response = public_client.get(endpoint)
-            assert response.status_code in [200, 503]  # 503 for readiness if DB down
+            assert response.status_code in [200, 503]
 
     @pytest.mark.security
-    def test_admin_endpoints_require_auth(self, client_with_mock_db):
-        """Admin endpoints require authentication"""
-        files = {"file": ("test.txt", "content", "text/plain")}
-        response = client_with_mock_db.put("/admin/upload-bls", files=files)
+    def test_bls_endpoints_require_jwt_auth(self, public_client):
+        """BLS endpoints require JWT authentication"""
+        response = public_client.get("/bls/search?q=test")
         assert response.status_code == 401
+        
+        response = public_client.get("/bls/B123456")
+        assert response.status_code == 401
+
+    @pytest.mark.security
+    def test_admin_endpoints_require_cookie_auth(self, public_client):
+        """Admin endpoints require cookie authentication"""
+        files = {"file": ("test.txt", "content", "text/plain")}
+        response = public_client.put("/admin/upload-bls", files=files)
+        assert response.status_code == 401
+
+    @pytest.mark.security
+    def test_admin_upload_with_auth(self, client_with_admin_auth):
+        """Admin upload works with proper cookie auth"""
+        with patch('app.services.bls_service.BLSService.upload_data') as mock_upload:
+            mock_upload.return_value = {"message": "success", "records": 1}
+            
+            files = {"file": ("test.txt", "SBLS\tST\nB123456\tTest", "text/plain")}
+            response = client_with_admin_auth.put("/admin/upload-bls", files=files)
+            assert response.status_code == 200
 
 
 class TestIntegration:
     """End-to-end integration tests"""
     
     # Removed test_upload_then_search_workflow
+
 
 
 

@@ -8,49 +8,64 @@ from app.main import app
 @pytest.fixture
 def client():
     """Basic test client"""
-    from app.main import app
     return TestClient(app)
 
 @pytest.fixture(scope="session", autouse=True)
 def _set_test_env():
     os.environ.setdefault("TESTING", "1")
     os.environ.setdefault("ADMIN_TOKEN", "test-token")
+    os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
+    os.environ.setdefault("LICENSEMANAGER_PUBLIC_KEY_PEM", "test-key")
 
 @pytest.fixture
 def public_client():
-    """Test client for public endpoints(no auth)"""
+    """Test client for public endpoints (no auth)"""
     with patch.dict(os.environ, {"TESTING": "1", "ENVIRONMENT": "development"}):
         yield TestClient(app)
-    
 
 @pytest.fixture
-def mock_user():
-    """Mock authenticated user"""
+def mock_jwt_user():
+    """Mock JWT user for BLS reader endpoints"""
     return {
-        "user_id": "test_user",
-        "roles": ["Admin", "BLS-Data-Reader"],
-        "email": "test@example.com",
-        "customer_id": "test_customer",
-        "customer_code": "TEST"
+        "sub": "integration@example.com",
+        "email": "integration@example.com", 
+        "roles": ["ROLE_INTEGRATION"],
+        "iss": "LM_AUTH"
+    }
+
+@pytest.fixture
+def mock_admin_user():
+    """Mock admin user for admin endpoints"""
+    return {
+        "sub": "admin@example.com",
+        "email": "admin@example.com",
+        "roles": ["ROLE_SUPER_ADMIN"],
+        "iss": "LM_AUTH"
     }
 
 @pytest.fixture
 def client_with_mock_db():
     """Test client with mocked database"""
-    from app.main import app
-    
-    with patch('app.database.get_session') as mock_get_session, \
-        patch('app.auth.verify_admin_credentials') as mock_verify_admin:
-        
+    with patch('app.database.get_session') as mock_get_session:
         mock_session = AsyncMock()
         mock_session.execute.return_value.scalar.return_value = 1
         mock_get_session.return_value = mock_session
         
-        # Mock admin credentials verification
-        mock_verify_admin.return_value = {"user_id": "admin@example.com", "roles": ["Admin"]}
-        
         with patch.dict(os.environ, {"TESTING": "1"}):
             yield TestClient(app)
+
+@pytest.fixture
+def client_with_bls_auth(mock_jwt_user):
+    """Test client with JWT auth for BLS endpoints"""
+    with patch('app.auth.require_bls_reader', return_value=mock_jwt_user):
+        yield TestClient(app)
+
+@pytest.fixture  
+def client_with_admin_auth(mock_admin_user):
+    """Test client with cookie auth for admin endpoints"""
+    with patch('app.auth.require_admin_cookie', return_value=mock_admin_user):
+        yield TestClient(app)
+
 @pytest.fixture
 def sample_bls_data():
     """Sample BLS data for testing"""
