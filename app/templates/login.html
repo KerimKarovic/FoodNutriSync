@@ -249,7 +249,6 @@
                     setTimeout(() => {
                         window.location.href = '/admin';
                     }, 1000);
-                    
                 } else {
                     const error = await response.json();
                     showError(`❌ ${error.detail || 'Login failed'}`);
@@ -283,6 +282,7 @@
     </script>
 </body>
 </html>
+
 
 
 
